@@ -873,9 +873,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   // increments is necessary to ensure that the guard pages used by the OS
   // virtual memory manager are allocated in correct sequence.
 
-  // [andrew 20130828] force Windows chkstk behaviour
-  //if (NumBytes >= 4096 && STI.isTargetCOFF() && !STI.isTargetEnvMacho()) {
-  if (NumBytes >= 4096) {
+  if (NumBytes >= 4096 && STI.isOSWindows() && !STI.isTargetEnvMacho()) {
     const char *StackProbeSymbol;
     bool isSPUpdateNeeded = false;
 
@@ -905,6 +903,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
         .setMIFlag(MachineInstr::FrameSetup);
     }
     
+    
     MachineInstrBuilder MIB;
 
     if (Is64Bit) {
@@ -913,25 +912,27 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
       BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::RAX)
         .addImm(NumBytes)
         .setMIFlag(MachineInstr::FrameSetup);
+      
+      if (STI.isOSWindows()) {
+        if (TM.getCodeModel() == CodeModel::Large) {
+          // For large code model we need to do indirect call to __chkstk.
         
-      if (TM.getCodeModel() == CodeModel::Large) {
-        // For large code model we need to do indirect call to __chkstk.
-      
-          
-        // R11 will be used to contain the address of __chkstk.
-        // R11 is a volotiale register and assumed to be destoyed by the callee, 
-        // so there is no need to save and restore it.
-        BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::R11)
-          .addExternalSymbol(StackProbeSymbol);
-        // Create a call to __chkstk function which address contained in R11.
-        MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::CALL64r))
-                .addReg(X86::R11, RegState::Kill);
-      } else {
-      
-        // For non-large code model we can do direct call to __chkstk.
-              
-        MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::W64ALLOCA))
-                .addExternalSymbol(StackProbeSymbol);
+            
+          // R11 will be used to contain the address of __chkstk.
+          // R11 is a volotiale register and assumed to be destoyed by the callee, 
+          // so there is no need to save and restore it.
+          BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::R11)
+            .addExternalSymbol(StackProbeSymbol);
+          // Create a call to __chkstk function which address contained in R11.
+          MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::CALL64r))
+                  .addReg(X86::R11, RegState::Kill);
+        } else {
+        
+          // For non-large code model we can do direct call to __chkstk.
+                
+          MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::W64ALLOCA))
+                  .addExternalSymbol(StackProbeSymbol);
+        }
       }
     } else {
       // Allocate NumBytes-4 bytes on stack in case of isEAXAlive.
@@ -939,9 +940,11 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
       BuildMI(MBB, MBBI, DL, TII.get(X86::MOV32ri), X86::EAX)
         .addImm(isEAXAlive ? NumBytes - 4 : NumBytes)
         .setMIFlag(MachineInstr::FrameSetup);
-        
-      MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::CALLpcrel32))
-              .addExternalSymbol(StackProbeSymbol);
+      
+      if (STI.isOSWindows()) {
+        MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::CALLpcrel32))
+                .addExternalSymbol(StackProbeSymbol);
+      }
     }
 
     MIB.addReg(StackPtr,    RegState::Define | RegState::Implicit)
