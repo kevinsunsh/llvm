@@ -872,7 +872,10 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   // responsible for adjusting the stack pointer.  Touching the stack at 4K
   // increments is necessary to ensure that the guard pages used by the OS
   // virtual memory manager are allocated in correct sequence.
-  if (NumBytes >= 4096 && STI.isTargetCOFF() && !STI.isTargetEnvMacho()) {
+
+  // [andrew 20130828] force Windows chkstk behaviour
+  //if (NumBytes >= 4096 && STI.isTargetCOFF() && !STI.isTargetEnvMacho()) {
+  if (NumBytes >= 4096) {
     const char *StackProbeSymbol;
     bool isSPUpdateNeeded = false;
 
