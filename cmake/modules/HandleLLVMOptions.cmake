@@ -149,9 +149,6 @@ if( MSVC_IDE )
 endif()
 
 if( MSVC )
-  set(LLVM_USE_CRT_DEBUG "MTd")
-  set(LLVM_USE_CRT_RELEASE "MT")
-  set(LLVM_USE_CRT_RELWITHDEBINFO "MT")
   include(ChooseMSVCCRT)
 
   if( MSVC11 )
@@ -167,9 +164,7 @@ if( MSVC )
     -D_CRT_NONSTDC_NO_WARNINGS
     -D_SCL_SECURE_NO_DEPRECATE
     -D_SCL_SECURE_NO_WARNINGS
-    -D_ITERATOR_DEBUG_LEVEL=0
-    -D_SECURE_SCL=0
-    
+
     # Disabled warnings.
     -wd4065 # Suppress 'switch statement contains 'default' but no 'case' labels'
     -wd4146 # Suppress 'unary minus operator applied to unsigned type, result still unsigned'
