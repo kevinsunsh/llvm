@@ -1,11 +1,18 @@
 ; RUN: llc < %s -march=sparc -mattr=-v9 | FileCheck %s -check-prefix=V8
 ; RUN: llc < %s -march=sparc -mattr=+v9 | FileCheck %s -check-prefix=V9
-; RUN: llc < %s -march=sparcv9 | FileCheck %s -check-prefix=SPARC64
+; RUN: llc < %s -march=sparc -mcpu=v9 | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparc -mcpu=ultrasparc  | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparc -mcpu=ultrasparc3 | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparc -mcpu=niagara     | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparc -mcpu=niagara2    | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparc -mcpu=niagara3    | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparc -mcpu=niagara4    | FileCheck %s -check-prefix=V9
+; RUN: llc < %s -march=sparcv9  | FileCheck %s -check-prefix=SPARC64
 
 declare i32 @llvm.ctpop.i32(i32)
 
 ; V8-LABEL: test
-; V8-NOT  : popc
+; V8-NOT: popc
 
 ; V9-LABEL: test
 ; V9:       srl %o0, 0, %o0

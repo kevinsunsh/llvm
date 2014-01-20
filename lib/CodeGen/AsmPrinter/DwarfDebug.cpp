@@ -209,6 +209,10 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   else
     HasDwarfPubSections = DwarfPubSections == Enable;
 
+  // For now only turn on CU ranges if we've explicitly asked for it
+  // or we have -ffunction-sections enabled.
+  HasCURanges = DwarfCURanges || TargetMachine::getFunctionSections();
+
   DwarfVersion = DwarfVersionNumber
                      ? DwarfVersionNumber
                      : getDwarfVersionFromModule(MMI->getModule());
@@ -1050,13 +1054,14 @@ void DwarfDebug::finalizeModuleInfo() {
                       dwarf::DW_FORM_data8, ID);
       }
 
-      // If we've requested ranges and have them emit a DW_AT_ranges attribute
-      // on the unit that will remain in the .o file, otherwise add a
-      // DW_AT_low_pc.
+      // If we have code split among multiple sections or we've requested
+      // it then emit a DW_AT_ranges attribute on the unit that will remain
+      // in the .o file, otherwise add a DW_AT_low_pc.
       // FIXME: Also add a high pc if we can.
-      // FIXME: We should use ranges if we have multiple compile units.
+      // FIXME: We should use ranges if we have multiple compile units or
+      // allow reordering of code ala .subsections_via_symbols in mach-o.
       DwarfCompileUnit *U = SkCU ? SkCU : static_cast<DwarfCompileUnit *>(TheU);
-      if (DwarfCURanges && TheU->getRanges().size())
+      if (useCURanges() && TheU->getRanges().size())
         addSectionLabel(Asm, U, U->getUnitDie(), dwarf::DW_AT_ranges,
                         Asm->GetTempSymbol("cu_ranges", U->getUniqueID()),
                         DwarfDebugRangeSectionSym);
@@ -2908,7 +2913,7 @@ void DwarfDebug::emitDebugRanges() {
     }
 
     // Now emit a range for the CU itself.
-    if (DwarfCURanges) {
+    if (useCURanges()) {
       Asm->OutStreamer.EmitLabel(
           Asm->GetTempSymbol("cu_ranges", TheCU->getUniqueID()));
       const SmallVectorImpl<RangeSpan> &Ranges = TheCU->getRanges();
@@ -2938,8 +2943,7 @@ void DwarfDebug::initSkeletonUnit(const DwarfUnit *U, DIE *Die,
   // Relocate to the beginning of the addr_base section, else 0 for the
   // beginning of the one for this compile unit.
   if (Asm->MAI->doesDwarfUseRelocationsAcrossSections())
-    NewU->addSectionLabel(Die, dwarf::DW_AT_GNU_addr_base,
-                           DwarfAddrSectionSym);
+    NewU->addSectionLabel(Die, dwarf::DW_AT_GNU_addr_base, DwarfAddrSectionSym);
   else
     NewU->addSectionOffset(Die, dwarf::DW_AT_GNU_addr_base, 0);
 

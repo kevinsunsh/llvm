@@ -192,7 +192,7 @@ class ARMAsmParser : public MCTargetAsmParser {
   }
 
   ARMTargetStreamer &getTargetStreamer() {
-    MCTargetStreamer &TS = getParser().getStreamer().getTargetStreamer();
+    MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
     return static_cast<ARMTargetStreamer &>(TS);
   }
 
@@ -5325,6 +5325,7 @@ bool ARMAsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     // For for ARM mode generate an error if the .n qualifier is used.
     if (ExtraToken == ".n" && !isThumb()) {
       SMLoc Loc = SMLoc::getFromPointer(NameLoc.getPointer() + Start);
+      Parser.eatToEndOfStatement();
       return Error(Loc, "instruction with .n (narrow) qualifier not allowed in "
                    "arm mode");
     }
@@ -6055,6 +6056,42 @@ bool ARMAsmParser::
 processInstruction(MCInst &Inst,
                    const SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   switch (Inst.getOpcode()) {
+  // Alias for alternate form of 'ldr{,b}t Rt, [Rn], #imm' instruction.
+  case ARM::LDRT_POST:
+  case ARM::LDRBT_POST: {
+    const unsigned Opcode =
+      (Inst.getOpcode() == ARM::LDRT_POST) ? ARM::LDRT_POST_IMM
+                                           : ARM::LDRBT_POST_IMM;
+    MCInst TmpInst;
+    TmpInst.setOpcode(Opcode);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(MCOperand::CreateReg(0));
+    TmpInst.addOperand(MCOperand::CreateImm(0));
+    TmpInst.addOperand(Inst.getOperand(2));
+    TmpInst.addOperand(Inst.getOperand(3));
+    Inst = TmpInst;
+    return true;
+  }
+  // Alias for alternate form of 'str{,b}t Rt, [Rn], #imm' instruction.
+  case ARM::STRT_POST:
+  case ARM::STRBT_POST: {
+    const unsigned Opcode =
+      (Inst.getOpcode() == ARM::STRT_POST) ? ARM::STRT_POST_IMM
+                                           : ARM::STRBT_POST_IMM;
+    MCInst TmpInst;
+    TmpInst.setOpcode(Opcode);
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(MCOperand::CreateReg(0));
+    TmpInst.addOperand(MCOperand::CreateImm(0));
+    TmpInst.addOperand(Inst.getOperand(2));
+    TmpInst.addOperand(Inst.getOperand(3));
+    Inst = TmpInst;
+    return true;
+  }
   // Alias for alternate form of 'ADR Rd, #imm' instruction.
   case ARM::ADDri: {
     if (Inst.getOperand(1).getReg() != ARM::PC ||
@@ -8035,7 +8072,7 @@ bool ARMAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
     for (;;) {
       const MCExpr *Value;
       if (getParser().parseExpression(Value))
-        return true;
+        return false;
 
       getParser().getStreamer().EmitValue(Value, Size);
 
@@ -8043,8 +8080,10 @@ bool ARMAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
         break;
 
       // FIXME: Improve diagnostic.
-      if (getLexer().isNot(AsmToken::Comma))
-        return Error(L, "unexpected token in directive");
+      if (getLexer().isNot(AsmToken::Comma)) {
+        Error(L, "unexpected token in directive");
+        return false;
+      }
       Parser.Lex();
     }
   }
@@ -8056,12 +8095,16 @@ bool ARMAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
 /// parseDirectiveThumb
 ///  ::= .thumb
 bool ARMAsmParser::parseDirectiveThumb(SMLoc L) {
-  if (getLexer().isNot(AsmToken::EndOfStatement))
-    return Error(L, "unexpected token in directive");
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    Error(L, "unexpected token in directive");
+    return false;
+  }
   Parser.Lex();
 
-  if (!hasThumb())
-    return Error(L, "target does not support Thumb mode");
+  if (!hasThumb()) {
+    Error(L, "target does not support Thumb mode");
+    return false;
+  }
 
   if (!isThumb())
     SwitchMode();
@@ -8072,12 +8115,16 @@ bool ARMAsmParser::parseDirectiveThumb(SMLoc L) {
 /// parseDirectiveARM
 ///  ::= .arm
 bool ARMAsmParser::parseDirectiveARM(SMLoc L) {
-  if (getLexer().isNot(AsmToken::EndOfStatement))
-    return Error(L, "unexpected token in directive");
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    Error(L, "unexpected token in directive");
+    return false;
+  }
   Parser.Lex();
 
-  if (!hasARM())
-    return Error(L, "target does not support ARM mode");
+  if (!hasARM()) {
+    Error(L, "target does not support ARM mode");
+    return false;
+  }
 
   if (isThumb())
     SwitchMode();
@@ -8103,8 +8150,11 @@ bool ARMAsmParser::parseDirectiveThumbFunc(SMLoc L) {
   if (isMachO) {
     const AsmToken &Tok = Parser.getTok();
     if (Tok.isNot(AsmToken::EndOfStatement)) {
-      if (Tok.isNot(AsmToken::Identifier) && Tok.isNot(AsmToken::String))
-        return Error(L, "unexpected token in .thumb_func directive");
+      if (Tok.isNot(AsmToken::Identifier) && Tok.isNot(AsmToken::String)) {
+        Error(L, "unexpected token in .thumb_func directive");
+        return false;
+      }
+
       MCSymbol *Func =
           getParser().getContext().GetOrCreateSymbol(Tok.getIdentifier());
       getParser().getStreamer().EmitThumbFunc(Func);
@@ -8113,11 +8163,12 @@ bool ARMAsmParser::parseDirectiveThumbFunc(SMLoc L) {
     }
   }
 
-  if (getLexer().isNot(AsmToken::EndOfStatement))
-    return Error(L, "unexpected token in directive");
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    Error(L, "unexpected token in directive");
+    return false;
+  }
 
   NextSymbolIsThumb = true;
-
   return false;
 }
 
@@ -8125,15 +8176,21 @@ bool ARMAsmParser::parseDirectiveThumbFunc(SMLoc L) {
 ///  ::= .syntax unified | divided
 bool ARMAsmParser::parseDirectiveSyntax(SMLoc L) {
   const AsmToken &Tok = Parser.getTok();
-  if (Tok.isNot(AsmToken::Identifier))
-    return Error(L, "unexpected token in .syntax directive");
+  if (Tok.isNot(AsmToken::Identifier)) {
+    Error(L, "unexpected token in .syntax directive");
+    return false;
+  }
+
   StringRef Mode = Tok.getString();
-  if (Mode == "unified" || Mode == "UNIFIED")
+  if (Mode == "unified" || Mode == "UNIFIED") {
     Parser.Lex();
-  else if (Mode == "divided" || Mode == "DIVIDED")
-    return Error(L, "'.syntax divided' arm asssembly not supported");
-  else
-    return Error(L, "unrecognized syntax mode in .syntax directive");
+  } else if (Mode == "divided" || Mode == "DIVIDED") {
+    Error(L, "'.syntax divided' arm asssembly not supported");
+    return false;
+  } else {
+    Error(L, "unrecognized syntax mode in .syntax directive");
+    return false;
+  }
 
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     Error(Parser.getTok().getLoc(), "unexpected token in directive");
@@ -8639,7 +8696,7 @@ bool ARMAsmParser::parseDirectiveRegSave(SMLoc L, bool IsVector) {
 
   // Parse the register list
   if (parseRegisterList(CO.Operands))
-    return true;
+    return false;
   ARMOperand *Op = (ARMOperand*)CO.Operands[0];
   if (!IsVector && !Op->isRegList()) {
     Error(L, ".save expects GPR registers");

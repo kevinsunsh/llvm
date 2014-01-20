@@ -2450,27 +2450,22 @@ def LDRT_POST_REG : AI2ldstidx<1, 0, 0, (outs GPR:$Rt, GPR:$Rn_wb),
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
 
-class LDRTImmediate<bit has_offset, string args, dag iops>
-  : AI2ldstidx<1, 0, 0, (outs GPR:$Rt, GPR:$Rn_wb), iops,
+def LDRT_POST_IMM
+  : AI2ldstidx<1, 0, 0, (outs GPR:$Rt, GPR:$Rn_wb),
+               (ins addr_offset_none:$addr, am2offset_imm:$offset),
                IndexModePost, LdFrm, IIC_iLoad_ru,
-               "ldrt", args, "$addr.base = $Rn_wb", []> {
+               "ldrt", "\t$Rt, $addr, $offset", "$addr.base = $Rn_wb", []> {
   // {12}     isAdd
   // {11-0}   imm12/Rm
   bits<14> offset;
   bits<4> addr;
   let Inst{25} = 0;
-  let Inst{23} = !if(has_offset, offset{12}, 1);
+  let Inst{23} = offset{12};
   let Inst{21} = 1; // overwrite
   let Inst{19-16} = addr;
-  let Inst{11-0} = !if(has_offset, offset{11-0}, 0);
+  let Inst{11-0} = offset{11-0};
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
-
-def LDRT_POST_IMM
-  : LDRTImmediate<1, "\t$Rt, $addr, $offset",
-                  (ins addr_offset_none:$addr, am2offset_imm:$offset)>;
-def LDRT_POST_IMM_0
-  : LDRTImmediate<0, "\t$Rt, $addr", (ins addr_offset_none:$addr)>;
 
 def LDRBT_POST_REG : AI2ldstidx<1, 1, 0, (outs GPR:$Rt, GPR:$Rn_wb),
                      (ins addr_offset_none:$addr, am2offset_reg:$offset),
@@ -2491,27 +2486,22 @@ def LDRBT_POST_REG : AI2ldstidx<1, 1, 0, (outs GPR:$Rt, GPR:$Rn_wb),
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
 
-class LDRBTImmediate<bit has_offset, string args, dag iops>
-  : AI2ldstidx<1, 1, 0, (outs GPR:$Rt, GPR:$Rn_wb), iops,
-                    IndexModePost, LdFrm, IIC_iLoad_bh_ru,
-                    "ldrbt", args, "$addr.base = $Rn_wb", []> {
+def LDRBT_POST_IMM
+  : AI2ldstidx<1, 1, 0, (outs GPR:$Rt, GPR:$Rn_wb),
+               (ins addr_offset_none:$addr, am2offset_imm:$offset),
+               IndexModePost, LdFrm, IIC_iLoad_bh_ru,
+               "ldrbt", "\t$Rt, $addr, $offset", "$addr.base = $Rn_wb", []> {
   // {12}     isAdd
   // {11-0}   imm12/Rm
   bits<14> offset;
   bits<4> addr;
   let Inst{25} = 0;
-  let Inst{23} = !if(has_offset, offset{12}, 1);
+  let Inst{23} = offset{12};
   let Inst{21} = 1; // overwrite
   let Inst{19-16} = addr;
-  let Inst{11-0} = !if(has_offset, offset{11-0}, 0);
+  let Inst{11-0} = offset{11-0};
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
-
-def LDRBT_POST_IMM
-  : LDRBTImmediate<1, "\t$Rt, $addr, $offset",
-                   (ins addr_offset_none:$addr, am2offset_imm:$offset)>;
-def LDRBT_POST_IMM_0
-  : LDRBTImmediate<0, "\t$Rt, $addr", (ins addr_offset_none:$addr)>;
 
 multiclass AI3ldrT<bits<4> op, string opc> {
   def i : AI3ldstidxT<op, 1, (outs GPR:$Rt, GPR:$base_wb),
@@ -2542,6 +2532,14 @@ defm LDRSBT : AI3ldrT<0b1101, "ldrsbt">;
 defm LDRHT  : AI3ldrT<0b1011, "ldrht">;
 defm LDRSHT : AI3ldrT<0b1111, "ldrsht">;
 }
+
+def LDRT_POST
+  : ARMAsmPseudo<"ldrt${q} $Rt, $addr", (ins addr_offset_none:$addr, pred:$q),
+                 (outs GPR:$Rt)>;
+
+def LDRBT_POST
+  : ARMAsmPseudo<"ldrbt${q} $Rt, $addr", (ins addr_offset_none:$addr, pred:$q),
+                 (outs GPR:$Rt)>;
 
 // Store
 
@@ -2773,26 +2771,26 @@ def STRBT_POST_REG : AI2ldstidx<0, 1, 0, (outs GPR:$Rn_wb),
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
 
-class STRBTImmediate<bit has_offset, string args, dag iops>
-  : AI2ldstidx<0, 1, 0, (outs GPR:$Rn_wb), iops, IndexModePost, StFrm,
-               IIC_iStore_bh_ru, "strbt", args, "$addr.base = $Rn_wb", []> {
+def STRBT_POST_IMM
+  : AI2ldstidx<0, 1, 0, (outs GPR:$Rn_wb),
+               (ins GPR:$Rt, addr_offset_none:$addr, am2offset_imm:$offset),
+               IndexModePost, StFrm, IIC_iStore_bh_ru,
+               "strbt", "\t$Rt, $addr, $offset", "$addr.base = $Rn_wb", []> {
   // {12}     isAdd
   // {11-0}   imm12/Rm
   bits<14> offset;
   bits<4> addr;
   let Inst{25} = 0;
-  let Inst{23} = !if(has_offset, offset{12}, 1);
+  let Inst{23} = offset{12};
   let Inst{21} = 1; // overwrite
   let Inst{19-16} = addr;
-  let Inst{11-0} = !if(has_offset, offset{11-0}, 0);
+  let Inst{11-0} = offset{11-0};
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
 
-def STRBT_POST_IMM
-  : STRBTImmediate<1, "\t$Rt, $addr, $offset",
-                   (ins GPR:$Rt, addr_offset_none:$addr, am2offset_imm:$offset)>;
-def STRBT_POST_IMM_0
-  : STRBTImmediate<0, "\t$Rt, $addr", (ins GPR:$Rt, addr_offset_none:$addr)>;
+def STRBT_POST
+  : ARMAsmPseudo<"strbt${q} $Rt, $addr",
+                 (ins GPR:$Rt, addr_offset_none:$addr, pred:$q)>;
 
 let mayStore = 1, neverHasSideEffects = 1 in {
 def STRT_POST_REG : AI2ldstidx<0, 0, 0, (outs GPR:$Rn_wb),
@@ -2814,28 +2812,27 @@ def STRT_POST_REG : AI2ldstidx<0, 0, 0, (outs GPR:$Rn_wb),
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
 
-class STRTImmediate<bit has_offset, string args, dag iops>
-  : AI2ldstidx<0, 0, 0, (outs GPR:$Rn_wb), iops, IndexModePost, StFrm,
-               IIC_iStore_ru, "strt", args, "$addr.base = $Rn_wb", []> {
+def STRT_POST_IMM
+  : AI2ldstidx<0, 0, 0, (outs GPR:$Rn_wb),
+               (ins GPR:$Rt, addr_offset_none:$addr, am2offset_imm:$offset),
+               IndexModePost, StFrm, IIC_iStore_ru,
+               "strt", "\t$Rt, $addr, $offset", "$addr.base = $Rn_wb", []> {
   // {12}     isAdd
   // {11-0}   imm12/Rm
   bits<14> offset;
   bits<4> addr;
   let Inst{25} = 0;
-  let Inst{23} = !if(has_offset, offset{12}, 1);
+  let Inst{23} = offset{12};
   let Inst{21} = 1; // overwrite
   let Inst{19-16} = addr;
-  let Inst{11-0} = !if(has_offset, offset{11-0}, 0);
+  let Inst{11-0} = offset{11-0};
   let DecoderMethod = "DecodeAddrMode2IdxInstruction";
 }
-
-def STRT_POST_IMM
-  : STRTImmediate<1, "\t$Rt, $addr, $offset",
-                  (ins GPR:$Rt, addr_offset_none:$addr, am2offset_imm:$offset)>;
-def STRT_POST_IMM_0
-  : STRTImmediate<0, "\t$Rt, $addr", (ins GPR:$Rt, addr_offset_none:$addr)>;
 }
 
+def STRT_POST
+  : ARMAsmPseudo<"strt${q} $Rt, $addr",
+                 (ins GPR:$Rt, addr_offset_none:$addr, pred:$q)>;
 
 multiclass AI3strT<bits<4> op, string opc> {
   def i : AI3ldstidxT<op, 0, (outs GPR:$base_wb),
@@ -3635,21 +3632,22 @@ def MULv5: ARMPseudoExpand<(outs GPRnopc:$Rd), (ins GPRnopc:$Rn, GPRnopc:$Rm,
                Requires<[IsARM, NoV6, UseMulOps]>;
 }
 
-def MLA  : AsMul1I32<0b0000001, (outs GPR:$Rd), (ins GPR:$Rn, GPR:$Rm, GPR:$Ra),
+def MLA  : AsMul1I32<0b0000001, (outs GPRnopc:$Rd),
+                     (ins GPRnopc:$Rn, GPRnopc:$Rm, GPRnopc:$Ra),
                      IIC_iMAC32, "mla", "\t$Rd, $Rn, $Rm, $Ra",
-                   [(set GPR:$Rd, (add (mul GPR:$Rn, GPR:$Rm), GPR:$Ra))]>,
-                   Requires<[IsARM, HasV6, UseMulOps]> {
+        [(set GPRnopc:$Rd, (add (mul GPRnopc:$Rn, GPRnopc:$Rm), GPRnopc:$Ra))]>,
+                     Requires<[IsARM, HasV6, UseMulOps]> {
   bits<4> Ra;
   let Inst{15-12} = Ra;
 }
 
 let Constraints = "@earlyclobber $Rd" in
-def MLAv5: ARMPseudoExpand<(outs GPR:$Rd),
-                           (ins GPR:$Rn, GPR:$Rm, GPR:$Ra, pred:$p, cc_out:$s),
-                           4, IIC_iMAC32,
-                        [(set GPR:$Rd, (add (mul GPR:$Rn, GPR:$Rm), GPR:$Ra))],
-                  (MLA GPR:$Rd, GPR:$Rn, GPR:$Rm, GPR:$Ra, pred:$p, cc_out:$s)>,
-                        Requires<[IsARM, NoV6]>;
+def MLAv5: ARMPseudoExpand<(outs GPRnopc:$Rd),
+                           (ins GPRnopc:$Rn, GPRnopc:$Rm, GPRnopc:$Ra,
+                            pred:$p, cc_out:$s), 4, IIC_iMAC32,
+         [(set GPRnopc:$Rd, (add (mul GPRnopc:$Rn, GPRnopc:$Rm), GPRnopc:$Ra))],
+  (MLA GPRnopc:$Rd, GPRnopc:$Rn, GPRnopc:$Rm, GPRnopc:$Ra, pred:$p, cc_out:$s)>,
+                           Requires<[IsARM, NoV6]>;
 
 def MLS  : AMul1I<0b0000011, (outs GPR:$Rd), (ins GPR:$Rn, GPR:$Rm, GPR:$Ra),
                    IIC_iMAC32, "mls", "\t$Rd, $Rn, $Rm, $Ra",
@@ -3717,7 +3715,8 @@ def UMAAL : AMul1I <0b0000010, (outs GPR:$RdLo, GPR:$RdHi),
   let Inst{3-0}   = Rn;
 }
 
-let Constraints = "$RLo = $RdLo,$RHi = $RdHi" in {
+let Constraints =
+    "@earlyclobber $RdLo,@earlyclobber $RdHi,$RLo = $RdLo,$RHi = $RdHi" in {
 def SMLALv5 : ARMPseudoExpand<(outs GPR:$RdLo, GPR:$RdHi),
                 (ins GPR:$Rn, GPR:$Rm, GPR:$RLo, GPR:$RHi, pred:$p, cc_out:$s),
                               4, IIC_iMAC64, [],
@@ -3729,14 +3728,6 @@ def UMLALv5 : ARMPseudoExpand<(outs GPR:$RdLo, GPR:$RdHi),
                               4, IIC_iMAC64, [],
              (UMLAL GPR:$RdLo, GPR:$RdHi, GPR:$Rn, GPR:$Rm, GPR:$RLo, GPR:$RHi,
                            pred:$p, cc_out:$s)>,
-                           Requires<[IsARM, NoV6]>;
-}
-
-let Constraints = "@earlyclobber $RdLo,@earlyclobber $RdHi" in {
-def UMAALv5 : ARMPseudoExpand<(outs GPR:$RdLo, GPR:$RdHi),
-                              (ins GPR:$Rn, GPR:$Rm, pred:$p),
-                              4, IIC_iMAC64, [],
-          (UMAAL GPR:$RdLo, GPR:$RdHi, GPR:$Rn, GPR:$Rm, pred:$p)>,
                            Requires<[IsARM, NoV6]>;
 }
 
@@ -5587,9 +5578,22 @@ def : ARMInstAlias<"neg${s}${p} $Rd, $Rm",
 def : InstAlias<"nop${p}", (MOVr R0, R0, pred:$p, zero_reg)>,
          Requires<[IsARM, NoV6]>;
 
-// UMULL/SMULL are available on all arches, but the instruction definitions
-// need difference constraints pre-v6. Use these aliases for the assembly
-// parsing on pre-v6.
+// MUL/UMLAL/SMLAL/UMULL/SMULL are available on all arches, but
+// the instruction definitions need difference constraints pre-v6.
+// Use these aliases for the assembly parsing on pre-v6.
+def : InstAlias<"mul${s}${p} $Rd, $Rn, $Rm",
+            (MUL GPRnopc:$Rd, GPRnopc:$Rn, GPRnopc:$Rm, pred:$p, cc_out:$s)>,
+         Requires<[IsARM, NoV6]>;
+def : InstAlias<"mla${s}${p} $Rd, $Rn, $Rm, $Ra",
+            (MLA GPRnopc:$Rd, GPRnopc:$Rn, GPRnopc:$Rm, GPRnopc:$Ra,
+             pred:$p, cc_out:$s)>,
+         Requires<[IsARM, NoV6]>;
+def : InstAlias<"smlal${s}${p} $RdLo, $RdHi, $Rn, $Rm",
+            (SMLAL GPR:$RdLo, GPR:$RdHi, GPR:$Rn, GPR:$Rm, pred:$p, cc_out:$s)>,
+         Requires<[IsARM, NoV6]>;
+def : InstAlias<"umlal${s}${p} $RdLo, $RdHi, $Rn, $Rm",
+            (UMLAL GPR:$RdLo, GPR:$RdHi, GPR:$Rn, GPR:$Rm, pred:$p, cc_out:$s)>,
+         Requires<[IsARM, NoV6]>;
 def : InstAlias<"smull${s}${p} $RdLo, $RdHi, $Rn, $Rm",
             (SMULL GPR:$RdLo, GPR:$RdHi, GPR:$Rn, GPR:$Rm, pred:$p, cc_out:$s)>,
          Requires<[IsARM, NoV6]>;
