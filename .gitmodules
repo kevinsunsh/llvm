@@ -1,0 +1,9 @@
+[submodule "projects/compiler-rt"]
+	path = projects/compiler-rt
+	url = git@github.com:fabric-engine/compiler-rt.git
+[submodule "tools/lldb"]
+	path = tools/lldb
+	url = git@github.com:fabric-engine/lldb.git
+[submodule "tools/clang"]
+	path = tools/clang
+	url = git@github.com:fabric-engine/clang.git
