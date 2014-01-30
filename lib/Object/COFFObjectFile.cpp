@@ -87,13 +87,10 @@ const coff_section *COFFObjectFile::toSec(DataRefImpl Ref) const {
   return Addr;
 }
 
-error_code COFFObjectFile::getSymbolNext(DataRefImpl Ref,
-                                         SymbolRef &Result) const {
+void COFFObjectFile::moveSymbolNext(DataRefImpl &Ref) const {
   const coff_symbol *Symb = toSymb(Ref);
   Symb += 1 + Symb->NumberOfAuxSymbols;
   Ref.p = reinterpret_cast<uintptr_t>(Symb);
-  Result = SymbolRef(Ref, this);
-  return object_error::success;
 }
 
 error_code COFFObjectFile::getSymbolName(DataRefImpl Ref,
@@ -221,13 +218,10 @@ error_code COFFObjectFile::getSymbolValue(DataRefImpl Ref,
   report_fatal_error("getSymbolValue unimplemented in COFFObjectFile");
 }
 
-error_code COFFObjectFile::getSectionNext(DataRefImpl Ref,
-                                          SectionRef &Result) const {
+void COFFObjectFile::moveSectionNext(DataRefImpl &Ref) const {
   const coff_section *Sec = toSec(Ref);
   Sec += 1;
   Ref.p = reinterpret_cast<uintptr_t>(Sec);
-  Result = SectionRef(Ref, this);
-  return object_error::success;
 }
 
 error_code COFFObjectFile::getSectionName(DataRefImpl Ref,
@@ -386,11 +380,8 @@ error_code COFFObjectFile::initSymbolTablePtr() {
 
 // Returns the file offset for the given RVA.
 error_code COFFObjectFile::getRvaPtr(uint32_t Rva, uintptr_t &Res) const {
-  error_code EC;
   for (section_iterator I = begin_sections(), E = end_sections(); I != E;
-       I.increment(EC)) {
-    if (EC)
-      return EC;
+       ++I) {
     const coff_section *Section = getCOFFSection(I);
     uint32_t SectionStart = Section->VirtualAddress;
     uint32_t SectionEnd = Section->VirtualAddress + Section->VirtualSize;
@@ -463,11 +454,12 @@ error_code COFFObjectFile::initExportTablePtr() {
   return object_error::success;
 }
 
-COFFObjectFile::COFFObjectFile(MemoryBuffer *Object, error_code &EC)
-  : ObjectFile(Binary::ID_COFF, Object), COFFHeader(0), PE32Header(0),
-    DataDirectory(0), SectionTable(0), SymbolTable(0), StringTable(0),
-    StringTableSize(0), ImportDirectory(0), NumberOfImportDirectory(0),
-    ExportDirectory(0) {
+COFFObjectFile::COFFObjectFile(MemoryBuffer *Object, error_code &EC,
+                               bool BufferOwned)
+    : ObjectFile(Binary::ID_COFF, Object, BufferOwned), COFFHeader(0),
+      PE32Header(0), PE32PlusHeader(0), DataDirectory(0), SectionTable(0),
+      SymbolTable(0), StringTable(0), StringTableSize(0), ImportDirectory(0),
+      NumberOfImportDirectory(0), ExportDirectory(0) {
   // Check that we at least have enough room for a header.
   if (!checkSize(Data, EC, sizeof(coff_file_header))) return;
 
@@ -498,26 +490,36 @@ COFFObjectFile::COFFObjectFile(MemoryBuffer *Object, error_code &EC)
   CurPtr += sizeof(coff_file_header);
 
   if (HasPEHeader) {
-    if ((EC = getObject(PE32Header, Data, base() + CurPtr)))
+    const pe32_header *Header;
+    if ((EC = getObject(Header, Data, base() + CurPtr)))
       return;
-    if (PE32Header->Magic != 0x10b) {
-      // We only support PE32. If this is PE32 (not PE32+), the magic byte
-      // should be 0x10b. If this is not PE32, continue as if there's no PE
-      // header in this file.
-      PE32Header = 0;
-    } else if (PE32Header->NumberOfRvaAndSize > 0) {
-      const uint8_t *Addr = base() + CurPtr + sizeof(pe32_header);
-      uint64_t size = sizeof(data_directory) * PE32Header->NumberOfRvaAndSize;
-      if ((EC = getObject(DataDirectory, Data, Addr, size)))
-        return;
+
+    const uint8_t *DataDirAddr;
+    uint64_t DataDirSize;
+    if (Header->Magic == 0x10b) {
+      PE32Header = Header;
+      DataDirAddr = base() + CurPtr + sizeof(pe32_header);
+      DataDirSize = sizeof(data_directory) * PE32Header->NumberOfRvaAndSize;
+    } else if (Header->Magic == 0x20b) {
+      PE32PlusHeader = reinterpret_cast<const pe32plus_header *>(Header);
+      DataDirAddr = base() + CurPtr + sizeof(pe32plus_header);
+      DataDirSize = sizeof(data_directory) * PE32PlusHeader->NumberOfRvaAndSize;
+    } else {
+      // It's neither PE32 nor PE32+.
+      EC = object_error::parse_failed;
+      return;
     }
+    if ((EC = getObject(DataDirectory, Data, DataDirAddr, DataDirSize)))
+      return;
     CurPtr += COFFHeader->SizeOfOptionalHeader;
   }
 
-  if (!COFFHeader->isImportLibrary())
-    if ((EC = getObject(SectionTable, Data, base() + CurPtr,
-                        COFFHeader->NumberOfSections * sizeof(coff_section))))
-      return;
+  if (COFFHeader->isImportLibrary())
+    return;
+
+  if ((EC = getObject(SectionTable, Data, base() + CurPtr,
+                      COFFHeader->NumberOfSections * sizeof(coff_section))))
+    return;
 
   // Initialize the pointer to the symbol table.
   if (COFFHeader->PointerToSymbolTable != 0)
@@ -652,10 +654,21 @@ error_code COFFObjectFile::getPE32Header(const pe32_header *&Res) const {
   return object_error::success;
 }
 
+error_code
+COFFObjectFile::getPE32PlusHeader(const pe32plus_header *&Res) const {
+  Res = PE32PlusHeader;
+  return object_error::success;
+}
+
 error_code COFFObjectFile::getDataDirectory(uint32_t Index,
                                             const data_directory *&Res) const {
   // Error if if there's no data directory or the index is out of range.
-  if (!DataDirectory || Index > PE32Header->NumberOfRvaAndSize)
+  if (!DataDirectory)
+    return object_error::parse_failed;
+  assert(PE32Header || PE32PlusHeader);
+  uint32_t NumEnt = PE32Header ? PE32Header->NumberOfRvaAndSize
+                               : PE32PlusHeader->NumberOfRvaAndSize;
+  if (Index > NumEnt)
     return object_error::parse_failed;
   Res = &DataDirectory[Index];
   return object_error::success;
@@ -779,12 +792,9 @@ const coff_relocation *COFFObjectFile::toRel(DataRefImpl Rel) const {
   return reinterpret_cast<const coff_relocation*>(Rel.p);
 }
 
-error_code COFFObjectFile::getRelocationNext(DataRefImpl Rel,
-                                             RelocationRef &Res) const {
+void COFFObjectFile::moveRelocationNext(DataRefImpl &Rel) const {
   Rel.p = reinterpret_cast<uintptr_t>(
             reinterpret_cast<const coff_relocation*>(Rel.p) + 1);
-  Res = RelocationRef(Rel, this);
-  return object_error::success;
 }
 
 error_code COFFObjectFile::getRelocationAddress(DataRefImpl Rel,
@@ -910,10 +920,8 @@ operator==(const ImportDirectoryEntryRef &Other) const {
   return ImportTable == Other.ImportTable && Index == Other.Index;
 }
 
-error_code
-ImportDirectoryEntryRef::getNext(ImportDirectoryEntryRef &Result) const {
-  Result = ImportDirectoryEntryRef(ImportTable, Index + 1, OwningObject);
-  return object_error::success;
+void ImportDirectoryEntryRef::moveNext() {
+  ++Index;
 }
 
 error_code ImportDirectoryEntryRef::
@@ -945,10 +953,8 @@ operator==(const ExportDirectoryEntryRef &Other) const {
   return ExportTable == Other.ExportTable && Index == Other.Index;
 }
 
-error_code
-ExportDirectoryEntryRef::getNext(ExportDirectoryEntryRef &Result) const {
-  Result = ExportDirectoryEntryRef(ExportTable, Index + 1, OwningObject);
-  return object_error::success;
+void ExportDirectoryEntryRef::moveNext() {
+  ++Index;
 }
 
 // Returns the name of the current export symbol. If the symbol is exported only
@@ -1013,9 +1019,11 @@ error_code ExportDirectoryEntryRef::getSymbolName(StringRef &Result) const {
   return object_error::success;
 }
 
-namespace llvm {
-ObjectFile *ObjectFile::createCOFFObjectFile(MemoryBuffer *Object) {
+ErrorOr<ObjectFile *> ObjectFile::createCOFFObjectFile(MemoryBuffer *Object,
+                                                       bool BufferOwned) {
   error_code EC;
-  return new COFFObjectFile(Object, EC);
-}
+  OwningPtr<COFFObjectFile> Ret(new COFFObjectFile(Object, EC, BufferOwned));
+  if (EC)
+    return EC;
+  return Ret.take();
 }

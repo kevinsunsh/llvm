@@ -68,11 +68,7 @@ GenerateGnuPubSections("generate-gnu-dwarf-pub-sections", cl::Hidden,
                        cl::init(false));
 
 namespace {
-enum DefaultOnOff {
-  Default,
-  Enable,
-  Disable
-};
+enum DefaultOnOff { Default, Enable, Disable };
 }
 
 static cl::opt<DefaultOnOff>
@@ -179,7 +175,8 @@ static unsigned getDwarfVersionFromModule(const Module *M) {
 DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
     : Asm(A), MMI(Asm->MMI), FirstCU(0), SourceIdMap(DIEValueAllocator),
       PrevLabel(NULL), GlobalRangeCount(0),
-      InfoHolder(A, "info_string", DIEValueAllocator),
+      InfoHolder(A, "info_string", DIEValueAllocator), HasCURanges(false),
+      UsedNonDefaultText(false),
       SkeletonHolder(A, "skel_string", DIEValueAllocator) {
 
   DwarfInfoSectionSym = DwarfAbbrevSectionSym = DwarfStrSectionSym = 0;
@@ -208,10 +205,6 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
     HasDwarfPubSections = !IsDarwin;
   else
     HasDwarfPubSections = DwarfPubSections == Enable;
-
-  // For now only turn on CU ranges if we've explicitly asked for it
-  // or we have -ffunction-sections enabled.
-  HasCURanges = DwarfCURanges || TargetMachine::getFunctionSections();
 
   DwarfVersion = DwarfVersionNumber
                      ? DwarfVersionNumber
@@ -428,10 +421,6 @@ DIE *DwarfDebug::updateSubprogramScopeDIE(DwarfCompileUnit *SPCU,
 
   SPCU->addLabelAddress(SPDie, dwarf::DW_AT_low_pc, FunctionBeginSym);
   SPCU->addLabelAddress(SPDie, dwarf::DW_AT_high_pc, FunctionEndSym);
-
-  // Add this range to the list of ranges for the CU.
-  RangeSpan Span(FunctionBeginSym, FunctionEndSym);
-  SPCU->addRange(llvm_move(Span));
 
   const TargetRegisterInfo *RI = Asm->TM.getRegisterInfo();
   MachineLocation Location(RI->getFrameRegister(*Asm->MF));
@@ -1061,11 +1050,17 @@ void DwarfDebug::finalizeModuleInfo() {
       // FIXME: We should use ranges if we have multiple compile units or
       // allow reordering of code ala .subsections_via_symbols in mach-o.
       DwarfCompileUnit *U = SkCU ? SkCU : static_cast<DwarfCompileUnit *>(TheU);
-      if (useCURanges() && TheU->getRanges().size())
+      if (useCURanges() && TheU->getRanges().size()) {
         addSectionLabel(Asm, U, U->getUnitDie(), dwarf::DW_AT_ranges,
                         Asm->GetTempSymbol("cu_ranges", U->getUniqueID()),
                         DwarfDebugRangeSectionSym);
-      else
+
+        // A DW_AT_low_pc attribute may also be specified in combination with
+        // DW_AT_ranges to specify the default base address for use in location
+        // lists (see Section 2.6.2) and range lists (see Section 2.17.3).
+        U->addUInt(U->getUnitDie(), dwarf::DW_AT_low_pc, dwarf::DW_FORM_addr,
+                   0);
+      } else
         U->addUInt(U->getUnitDie(), dwarf::DW_AT_low_pc, dwarf::DW_FORM_addr,
                    0);
     }
@@ -1114,10 +1109,8 @@ void DwarfDebug::endSections() {
     if (Section) {
       // We can't call MCSection::getLabelEndName, as it's only safe to do so
       // if we know the section name up-front. For user-created sections, the
-      // resulting
-      // label may not be valid to use as a label. (section names can use a
-      // greater
-      // set of characters on some systems)
+      // resulting label may not be valid to use as a label. (section names can
+      // use a greater set of characters on some systems)
       Sym = Asm->GetTempSymbol("debug_end", ID);
       Asm->OutStreamer.SwitchSection(Section);
       Asm->OutStreamer.EmitLabel(Sym);
@@ -1126,6 +1119,15 @@ void DwarfDebug::endSections() {
     // Insert a final terminator.
     SectionMap[Section].push_back(SymbolCU(NULL, Sym));
   }
+
+  // For now only turn on CU ranges if we've explicitly asked for it,
+  // we have -ffunction-sections enabled, we've emitted a function
+  // into a unique section, or we're using LTO. If we're using LTO then
+  // we can't know that any particular function in the module is correlated
+  // to a particular CU and so we need to be conservative. At this point all
+  // sections should be finalized except for dwarf sections.
+  HasCURanges = DwarfCURanges || UsedNonDefaultText || (CUMap.size() > 1) ||
+                TargetMachine::getFunctionSections();
 }
 
 // Emit all Dwarf sections that should come after the content.
@@ -1525,30 +1527,6 @@ void DwarfDebug::identifyScopeMarkers() {
   }
 }
 
-// Get MDNode for DebugLoc's scope.
-static MDNode *getScopeNode(DebugLoc DL, const LLVMContext &Ctx) {
-  if (MDNode *InlinedAt = DL.getInlinedAt(Ctx))
-    return getScopeNode(DebugLoc::getFromDILocation(InlinedAt), Ctx);
-  return DL.getScope(Ctx);
-}
-
-// Walk up the scope chain of given debug loc and find line number info
-// for the function.
-static DebugLoc getFnDebugLoc(DebugLoc DL, const LLVMContext &Ctx) {
-  const MDNode *Scope = getScopeNode(DL, Ctx);
-  DISubprogram SP = getDISubprogram(Scope);
-  if (SP.isSubprogram()) {
-    // Check for number of operands since the compatibility is
-    // cheap here.
-    if (SP->getNumOperands() > 19)
-      return DebugLoc::get(SP.getScopeLineNumber(), 0, SP);
-    else
-      return DebugLoc::get(SP.getLineNumber(), 0, SP);
-  }
-
-  return DebugLoc();
-}
-
 // Gather pre-function debug information.  Assumes being called immediately
 // after the function entry point has been emitted.
 void DwarfDebug::beginFunction(const MachineFunction *MF) {
@@ -1580,6 +1558,12 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
     Asm->OutStreamer.getContext().setDwarfCompileUnitID(0);
   else
     Asm->OutStreamer.getContext().setDwarfCompileUnitID(TheCU->getUniqueID());
+
+  // Check the current section against the standard text section. If different
+  // keep track so that we will know when we're emitting functions into multiple
+  // sections.
+  if (Asm->getObjFileLowering().getTextSection() != Asm->getCurrentSection())
+    UsedNonDefaultText = true;
 
   // Emit a label for the function so that we have a beginning address.
   FunctionBeginSym = Asm->GetTempSymbol("func_begin", Asm->getFunctionNumber());
@@ -1737,7 +1721,7 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
   // Record beginning of function.
   if (!PrologEndLoc.isUnknown()) {
     DebugLoc FnStartDL =
-        getFnDebugLoc(PrologEndLoc, MF->getFunction()->getContext());
+        PrologEndLoc.getFnDebugLoc(MF->getFunction()->getContext());
     recordSourceLine(
         FnStartDL.getLine(), FnStartDL.getCol(),
         FnStartDL.getScope(MF->getFunction()->getContext()),
@@ -1798,6 +1782,7 @@ void DwarfDebug::endFunction(const MachineFunction *MF) {
   FunctionEndSym = Asm->GetTempSymbol("func_end", Asm->getFunctionNumber());
   // Assumes in correct section after the entry point.
   Asm->OutStreamer.EmitLabel(FunctionEndSym);
+
   // Set DwarfDwarfCompileUnitID in MCContext to default value.
   Asm->OutStreamer.getContext().setDwarfCompileUnitID(0);
 
@@ -1835,9 +1820,12 @@ void DwarfDebug::endFunction(const MachineFunction *MF) {
   }
 
   DIE *CurFnDIE = constructScopeDIE(TheCU, FnScope);
-
   if (!CurFn->getTarget().Options.DisableFramePointerElim(*CurFn))
     TheCU->addFlag(CurFnDIE, dwarf::DW_AT_APPLE_omit_frame_ptr);
+
+  // Add the range of this function to the list of ranges for the CU.
+  RangeSpan Span(FunctionBeginSym, FunctionEndSym);
+  TheCU->addRange(llvm_move(Span));
 
   // Clear debug info
   for (ScopeVariablesMap::iterator I = ScopeVariables.begin(),
@@ -2876,8 +2864,9 @@ void DwarfDebug::emitDebugRanges() {
   unsigned char Size = Asm->getDataLayout().getPointerSize();
 
   // Grab the specific ranges for the compile units in the module.
-  for (DenseMap<const MDNode *, DwarfCompileUnit *>::iterator I = CUMap.begin(),
-                                                              E = CUMap.end();
+  for (MapVector<const MDNode *, DwarfCompileUnit *>::iterator
+           I = CUMap.begin(),
+           E = CUMap.end();
        I != E; ++I) {
     DwarfCompileUnit *TheCU = I->second;
 
@@ -3027,36 +3016,40 @@ void DwarfDebug::emitDebugStrDWO() {
 void DwarfDebug::addDwarfTypeUnitType(DICompileUnit CUNode,
                                       StringRef Identifier, DIE *RefDie,
                                       DICompositeType CTy) {
+
   const DwarfTypeUnit *&TU = DwarfTypeUnits[CTy];
-  if (!TU) {
-    DIE *UnitDie = new DIE(dwarf::DW_TAG_type_unit);
-    DwarfTypeUnit *NewTU = new DwarfTypeUnit(
-        InfoHolder.getUnits().size(), UnitDie, CUNode, Asm, this, &InfoHolder);
-    TU = NewTU;
-    InfoHolder.addUnit(NewTU);
-
-    NewTU->addUInt(UnitDie, dwarf::DW_AT_language, dwarf::DW_FORM_data2,
-                   CUNode.getLanguage());
-
-    MD5 Hash;
-    Hash.update(Identifier);
-    // ... take the least significant 8 bytes and return those. Our MD5
-    // implementation always returns its results in little endian, swap bytes
-    // appropriately.
-    MD5::MD5Result Result;
-    Hash.final(Result);
-    uint64_t Signature = *reinterpret_cast<support::ulittle64_t *>(Result + 8);
-    NewTU->setTypeSignature(Signature);
-    if (useSplitDwarf())
-      NewTU->setSkeleton(constructSkeletonTU(NewTU));
-
-    NewTU->setType(NewTU->createTypeDIE(CTy));
-
-    NewTU->initSection(
-        useSplitDwarf()
-            ? Asm->getObjFileLowering().getDwarfTypesDWOSection(Signature)
-            : Asm->getObjFileLowering().getDwarfTypesSection(Signature));
+  if (TU) {
+    CUMap.begin()->second->addDIETypeSignature(RefDie, *TU);
+    return;
   }
 
-  CUMap.begin()->second->addDIETypeSignature(RefDie, *TU);
+  DIE *UnitDie = new DIE(dwarf::DW_TAG_type_unit);
+  DwarfTypeUnit *NewTU = new DwarfTypeUnit(
+      InfoHolder.getUnits().size(), UnitDie, CUNode, Asm, this, &InfoHolder);
+  TU = NewTU;
+  InfoHolder.addUnit(NewTU);
+
+  NewTU->addUInt(UnitDie, dwarf::DW_AT_language, dwarf::DW_FORM_data2,
+                 CUNode.getLanguage());
+
+  MD5 Hash;
+  Hash.update(Identifier);
+  // ... take the least significant 8 bytes and return those. Our MD5
+  // implementation always returns its results in little endian, swap bytes
+  // appropriately.
+  MD5::MD5Result Result;
+  Hash.final(Result);
+  uint64_t Signature = *reinterpret_cast<support::ulittle64_t *>(Result + 8);
+  NewTU->setTypeSignature(Signature);
+  if (useSplitDwarf())
+    NewTU->setSkeleton(constructSkeletonTU(NewTU));
+
+  NewTU->setType(NewTU->createTypeDIE(CTy));
+
+  NewTU->initSection(
+      useSplitDwarf()
+          ? Asm->getObjFileLowering().getDwarfTypesDWOSection(Signature)
+          : Asm->getObjFileLowering().getDwarfTypesSection(Signature));
+
+  CUMap.begin()->second->addDIETypeSignature(RefDie, *NewTU);
 }

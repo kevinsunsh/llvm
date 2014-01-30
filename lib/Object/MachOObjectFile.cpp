@@ -275,18 +275,9 @@ static StringRef parseSegmentOrSectionName(const char *P) {
 
 // Helper to advance a section or symbol iterator multiple increments at a time.
 template<class T>
-static error_code advance(T &it, size_t Val) {
-  error_code ec;
-  while (Val--) {
-    it.increment(ec);
-  }
-  return ec;
-}
-
-template<class T>
-static void advanceTo(T &it, size_t Val) {
-  if (error_code ec = advance(it, Val))
-    report_fatal_error(ec.message());
+static void advance(T &it, size_t Val) {
+  while (Val--)
+    ++it;
 }
 
 static unsigned getCPUType(const MachOObjectFile *O) {
@@ -305,11 +296,9 @@ static void printRelocationTargetName(const MachOObjectFile *O,
   if (IsScattered) {
     uint32_t Val = O->getPlainRelocationSymbolNum(RE);
 
-    error_code ec;
     for (symbol_iterator SI = O->begin_symbols(), SE = O->end_symbols();
-         SI != SE; SI.increment(ec)) {
-      if (ec) report_fatal_error(ec.message());
-
+         SI != SE; ++SI) {
+      error_code ec;
       uint64_t Addr;
       StringRef Name;
 
@@ -325,9 +314,8 @@ static void printRelocationTargetName(const MachOObjectFile *O,
     // If we couldn't find a symbol that this relocation refers to, try
     // to find a section beginning instead.
     for (section_iterator SI = O->begin_sections(), SE = O->end_sections();
-         SI != SE; SI.increment(ec)) {
-      if (ec) report_fatal_error(ec.message());
-
+         SI != SE; ++SI) {
+      error_code ec;
       uint64_t Addr;
       StringRef Name;
 
@@ -350,12 +338,12 @@ static void printRelocationTargetName(const MachOObjectFile *O,
 
   if (isExtern) {
     symbol_iterator SI = O->begin_symbols();
-    advanceTo(SI, Val);
+    advance(SI, Val);
     SI->getName(S);
   } else {
     section_iterator SI = O->begin_sections();
     // Adjust for the fact that sections are 1-indexed.
-    advanceTo(SI, Val - 1);
+    advance(SI, Val - 1);
     SI->getName(S);
   }
 
@@ -419,10 +407,10 @@ static uint32_t getSectionFlags(const MachOObjectFile *O,
   return Sect.flags;
 }
 
-MachOObjectFile::MachOObjectFile(MemoryBuffer *Object,
-                                 bool IsLittleEndian, bool Is64bits,
-                                 error_code &ec)
-    : ObjectFile(getMachOType(IsLittleEndian, Is64bits), Object),
+MachOObjectFile::MachOObjectFile(MemoryBuffer *Object, bool IsLittleEndian,
+                                 bool Is64bits, error_code &EC,
+                                 bool BufferOwned)
+    : ObjectFile(getMachOType(IsLittleEndian, Is64bits), Object, BufferOwned),
       SymtabLoadCmd(NULL), DysymtabLoadCmd(NULL), DataInCodeLoadCmd(NULL) {
   uint32_t LoadCommandCount = this->getHeader().ncmds;
   MachO::LoadCommandType SegmentLoadType = is64Bit() ?
@@ -454,14 +442,11 @@ MachOObjectFile::MachOObjectFile(MemoryBuffer *Object,
   }
 }
 
-error_code MachOObjectFile::getSymbolNext(DataRefImpl Symb,
-                                          SymbolRef &Res) const {
+void MachOObjectFile::moveSymbolNext(DataRefImpl &Symb) const {
   unsigned SymbolTableEntrySize = is64Bit() ?
     sizeof(MachO::nlist_64) :
     sizeof(MachO::nlist);
   Symb.p += SymbolTableEntrySize;
-  Res = SymbolRef(Symb, this);
-  return object_error::success;
 }
 
 error_code MachOObjectFile::getSymbolName(DataRefImpl Symb,
@@ -545,9 +530,7 @@ error_code MachOObjectFile::getSymbolSize(DataRefImpl DRI,
   }
   // Unfortunately symbols are unsorted so we need to touch all
   // symbols from load command
-  error_code ec;
-  for (symbol_iterator I = begin_symbols(), E = end_symbols(); I != E;
-       I.increment(ec)) {
+  for (symbol_iterator I = begin_symbols(), E = end_symbols(); I != E; ++I) {
     DataRefImpl DRI = I->getRawDataRefImpl();
     Entry = getSymbolTableEntryBase(this, DRI);
     getSymbolAddress(DRI, Value);
@@ -648,11 +631,8 @@ error_code MachOObjectFile::getSymbolValue(DataRefImpl Symb,
   report_fatal_error("getSymbolValue unimplemented in MachOObjectFile");
 }
 
-error_code MachOObjectFile::getSectionNext(DataRefImpl Sec,
-                                           SectionRef &Res) const {
+void MachOObjectFile::moveSectionNext(DataRefImpl &Sec) const {
   Sec.d.a++;
-  Res = SectionRef(Sec, this);
-  return object_error::success;
 }
 
 error_code
@@ -834,13 +814,10 @@ MachOObjectFile::section_rel_end(DataRefImpl Sec) const {
   return relocation_iterator(RelocationRef(Ret, this));
 }
 
-error_code MachOObjectFile::getRelocationNext(DataRefImpl Rel,
-                                              RelocationRef &Res) const {
+void MachOObjectFile::moveRelocationNext(DataRefImpl &Rel) const {
   const MachO::any_relocation_info *P =
     reinterpret_cast<const MachO::any_relocation_info *>(Rel.p);
   Rel.p = reinterpret_cast<uintptr_t>(P + 1);
-  Res = RelocationRef(Rel, this);
-  return object_error::success;
 }
 
 error_code
@@ -1582,25 +1559,26 @@ void MachOObjectFile::ReadULEB128s(uint64_t Index,
   }
 }
 
-ObjectFile *ObjectFile::createMachOObjectFile(MemoryBuffer *Buffer) {
+ErrorOr<ObjectFile *> ObjectFile::createMachOObjectFile(MemoryBuffer *Buffer,
+                                                        bool BufferOwned) {
   StringRef Magic = Buffer->getBuffer().slice(0, 4);
-  error_code ec;
-  OwningPtr<ObjectFile> Ret;
+  error_code EC;
+  OwningPtr<MachOObjectFile> Ret;
   if (Magic == "\xFE\xED\xFA\xCE")
-    Ret.reset(new MachOObjectFile(Buffer, false, false, ec));
+    Ret.reset(new MachOObjectFile(Buffer, false, false, EC, BufferOwned));
   else if (Magic == "\xCE\xFA\xED\xFE")
-    Ret.reset(new MachOObjectFile(Buffer, true, false, ec));
+    Ret.reset(new MachOObjectFile(Buffer, true, false, EC, BufferOwned));
   else if (Magic == "\xFE\xED\xFA\xCF")
-    Ret.reset(new MachOObjectFile(Buffer, false, true, ec));
+    Ret.reset(new MachOObjectFile(Buffer, false, true, EC, BufferOwned));
   else if (Magic == "\xCF\xFA\xED\xFE")
-    Ret.reset(new MachOObjectFile(Buffer, true, true, ec));
+    Ret.reset(new MachOObjectFile(Buffer, true, true, EC, BufferOwned));
   else {
     delete Buffer;
-    return NULL;
+    return object_error::parse_failed;
   }
 
-  if (ec)
-    return NULL;
+  if (EC)
+    return EC;
   return Ret.take();
 }
 

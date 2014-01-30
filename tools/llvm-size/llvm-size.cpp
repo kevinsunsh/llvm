@@ -111,12 +111,8 @@ static void PrintObjectSectionSizes(ObjectFile *o) {
     std::size_t max_name_len = strlen("section");
     std::size_t max_size_len = strlen("size");
     std::size_t max_addr_len = strlen("addr");
-    error_code ec;
-    for (section_iterator i = o->begin_sections(),
-                          e = o->end_sections(); i != e;
-                          i.increment(ec)) {
-      if (error(ec))
-        return;
+    for (section_iterator i = o->begin_sections(), e = o->end_sections();
+         i != e; ++i) {
       uint64_t size = 0;
       if (error(i->getSize(size)))
         return;
@@ -154,12 +150,8 @@ static void PrintObjectSectionSizes(ObjectFile *o) {
         << "%#" << max_addr_len << radix_fmt << "\n";
 
     // Print each section.
-    for (section_iterator i = o->begin_sections(),
-                          e = o->end_sections(); i != e;
-                          i.increment(ec)) {
-      if (error(ec))
-        return;
-
+    for (section_iterator i = o->begin_sections(), e = o->end_sections();
+         i != e; ++i) {
       StringRef name;
       uint64_t size = 0;
       uint64_t addr = 0;
@@ -189,13 +181,8 @@ static void PrintObjectSectionSizes(ObjectFile *o) {
     uint64_t total_bss = 0;
 
     // Make one pass over the section table to calculate sizes.
-    error_code ec;
-    for (section_iterator i = o->begin_sections(),
-                          e = o->end_sections(); i != e;
-                          i.increment(ec)) {
-      if (error(ec))
-        return;
-
+    for (section_iterator i = o->begin_sections(), e = o->end_sections();
+         i != e; ++i) {
       uint64_t size = 0;
       bool isText = false;
       bool isData = false;
@@ -253,8 +240,8 @@ static void PrintFileSectionSizes(StringRef file) {
 
   if (Archive *a = dyn_cast<Archive>(binary.get())) {
     // This is an archive. Iterate over each member and display its sizes.
-    for (object::Archive::child_iterator i = a->begin_children(),
-                                         e = a->end_children(); i != e; ++i) {
+    for (object::Archive::child_iterator i = a->child_begin(),
+                                         e = a->child_end(); i != e; ++i) {
       OwningPtr<Binary> child;
       if (error_code ec = i->getAsBinary(child)) {
         errs() << ToolName << ": " << file << ": " << ec.message() << ".\n";
