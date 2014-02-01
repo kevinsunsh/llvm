@@ -155,10 +155,9 @@ error_code COFFObjectFile::getSymbolType(DataRefImpl Ref,
   return object_error::success;
 }
 
-error_code COFFObjectFile::getSymbolFlags(DataRefImpl Ref,
-                                          uint32_t &Result) const {
+uint32_t COFFObjectFile::getSymbolFlags(DataRefImpl Ref) const {
   const coff_symbol *Symb = toSymb(Ref);
-  Result = SymbolRef::SF_None;
+  uint32_t Result = SymbolRef::SF_None;
 
   // TODO: Correctly set SF_FormatSpecific, SF_ThreadLocal, SF_Common
 
@@ -176,7 +175,7 @@ error_code COFFObjectFile::getSymbolFlags(DataRefImpl Ref,
   if (Symb->SectionNumber == COFF::IMAGE_SYM_ABSOLUTE)
     Result |= SymbolRef::SF_Absolute;
 
-  return object_error::success;
+  return Result;
 }
 
 error_code COFFObjectFile::getSymbolSize(DataRefImpl Ref,
@@ -548,16 +547,6 @@ symbol_iterator COFFObjectFile::end_symbols() const {
   DataRefImpl Ret;
   Ret.p = reinterpret_cast<uintptr_t>(StringTable);
   return symbol_iterator(SymbolRef(Ret, this));
-}
-
-symbol_iterator COFFObjectFile::begin_dynamic_symbols() const {
-  // TODO: implement
-  report_fatal_error("Dynamic symbols unimplemented in COFFObjectFile");
-}
-
-symbol_iterator COFFObjectFile::end_dynamic_symbols() const {
-  // TODO: implement
-  report_fatal_error("Dynamic symbols unimplemented in COFFObjectFile");
 }
 
 library_iterator COFFObjectFile::begin_libraries_needed() const {

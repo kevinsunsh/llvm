@@ -71,8 +71,7 @@ public:
   error_code getSymbolSize(DataRefImpl Symb, uint64_t &Res) const LLVM_OVERRIDE;
   error_code getSymbolType(DataRefImpl Symb, SymbolRef::Type &Res) const
       LLVM_OVERRIDE;
-  error_code getSymbolFlags(DataRefImpl Symb, uint32_t &Res) const
-      LLVM_OVERRIDE;
+  uint32_t getSymbolFlags(DataRefImpl Symb) const LLVM_OVERRIDE;
   error_code getSymbolSection(DataRefImpl Symb, section_iterator &Res) const
       LLVM_OVERRIDE;
   error_code getSymbolValue(DataRefImpl Symb, uint64_t &Val) const
@@ -129,9 +128,6 @@ public:
 
   symbol_iterator begin_symbols() const LLVM_OVERRIDE;
   symbol_iterator end_symbols() const LLVM_OVERRIDE;
-
-  symbol_iterator begin_dynamic_symbols() const LLVM_OVERRIDE;
-  symbol_iterator end_dynamic_symbols() const LLVM_OVERRIDE;
 
   section_iterator begin_sections() const LLVM_OVERRIDE;
   section_iterator end_sections() const LLVM_OVERRIDE;
