@@ -102,6 +102,8 @@ struct LineEditor::InternalData {
 
   unsigned PrevCount;
   std::string ContinuationOutput;
+
+  FILE *Out;
 };
 
 static const char *ElGetPromptFn(EditLine *EL) {
@@ -120,9 +122,7 @@ static unsigned char ElCompletionFn(EditLine *EL, int ch) {
   if (el_get(EL, EL_CLIENTDATA, &Data) == 0) {
     if (!Data->ContinuationOutput.empty()) {
       // This is the continuation of the AK_ShowCompletions branch below.
-      FILE *Out;
-      if (::el_get(EL, EL_GETFP, 1, &Out) != 0)
-        return CC_ERROR;
+      FILE *Out = Data->Out;
 
       // Print the required output (see below).
       ::fwrite(Data->ContinuationOutput.c_str(),
@@ -131,7 +131,7 @@ static unsigned char ElCompletionFn(EditLine *EL, int ch) {
       // Push a sequence of Ctrl-B characters to move the cursor back to its
       // original position.
       std::string Prevs(Data->PrevCount, '\02');
-      ::el_push(EL, (char *)Prevs.c_str());
+      ::el_push(EL, const_cast<char *>(Prevs.c_str()));
 
       Data->ContinuationOutput.clear();
 
@@ -158,7 +158,7 @@ static unsigned char ElCompletionFn(EditLine *EL, int ch) {
         // from here to cause libedit to move the cursor immediately. This will
         // break horribly if the user has rebound their keys, so for now we do
         // not permit user rebinding.
-        ::el_push(EL, (char *)"\05\t");
+        ::el_push(EL, const_cast<char *>("\05\t"));
 
         // This assembles the output for the continuation block above.
         raw_string_ostream OS(Data->ContinuationOutput);
@@ -186,9 +186,8 @@ static unsigned char ElCompletionFn(EditLine *EL, int ch) {
         return CC_REFRESH;
       }
     }
-  } else {
-    return CC_ERROR;
   }
+  return CC_ERROR;
 }
 
 LineEditor::LineEditor(StringRef ProgName, StringRef HistoryPath, FILE *In,
@@ -199,6 +198,7 @@ LineEditor::LineEditor(StringRef ProgName, StringRef HistoryPath, FILE *In,
     this->HistoryPath = getDefaultHistoryPath(ProgName);
 
   Data->LE = this;
+  Data->Out = Out;
 
   Data->Hist = ::history_init();
   assert(Data->Hist);
@@ -229,15 +229,9 @@ LineEditor::LineEditor(StringRef ProgName, StringRef HistoryPath, FILE *In,
 LineEditor::~LineEditor() {
   saveHistory();
 
-  FILE *Out;
-  if (::el_get(Data->EL, EL_GETFP, 1, &Out) != 0)
-    Out = 0;
-
   ::history_end(Data->Hist);
   ::el_end(Data->EL);
-
-  if (Out)
-    ::fwrite("\n", 1, 1, Out);
+  ::fwrite("\n", 1, 1, Data->Out);
 }
 
 void LineEditor::saveHistory() {

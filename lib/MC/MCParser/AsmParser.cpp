@@ -337,8 +337,8 @@ private:
   enum DirectiveKind {
     DK_NO_DIRECTIVE, // Placeholder
     DK_SET, DK_EQU, DK_EQUIV, DK_ASCII, DK_ASCIZ, DK_STRING, DK_BYTE, DK_SHORT,
-    DK_VALUE, DK_2BYTE, DK_LONG, DK_INT, DK_4BYTE, DK_QUAD, DK_8BYTE, DK_SINGLE,
-    DK_FLOAT, DK_DOUBLE, DK_ALIGN, DK_ALIGN32, DK_BALIGN, DK_BALIGNW,
+    DK_VALUE, DK_2BYTE, DK_LONG, DK_INT, DK_4BYTE, DK_QUAD, DK_8BYTE, DK_OCTA,
+    DK_SINGLE, DK_FLOAT, DK_DOUBLE, DK_ALIGN, DK_ALIGN32, DK_BALIGN, DK_BALIGNW,
     DK_BALIGNL, DK_P2ALIGN, DK_P2ALIGNW, DK_P2ALIGNL, DK_ORG, DK_FILL, DK_ENDR,
     DK_BUNDLE_ALIGN_MODE, DK_BUNDLE_LOCK, DK_BUNDLE_UNLOCK,
     DK_ZERO, DK_EXTERN, DK_GLOBL, DK_GLOBAL,
@@ -367,6 +367,7 @@ private:
   // ".ascii", ".asciz", ".string"
   bool parseDirectiveAscii(StringRef IDVal, bool ZeroTerminated);
   bool parseDirectiveValue(unsigned Size); // ".byte", ".long", ...
+  bool parseDirectiveOctaValue(); // ".octa"
   bool parseDirectiveRealValue(const fltSemantics &); // ".single", ...
   bool parseDirectiveFill(); // ".fill"
   bool parseDirectiveZero(); // ".zero"
@@ -680,10 +681,6 @@ bool AsmParser::Run(bool NoInitialTextSection, bool NoFinalize) {
     }
   }
 
-  // Callback to the target parser in case it needs to do anything.
-  if (!HadError)
-    getTargetParser().finishParse();
-
   // Finalize the output stream if there are no errors and if the client wants
   // us to.
   if (!HadError && !NoFinalize)
@@ -854,6 +851,8 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
     Res = MCSymbolRefExpr::Create(Sym, Variant, getContext());
     return false;
   }
+  case AsmToken::BigNum:
+    return TokError("literal value out of range for directive");
   case AsmToken::Integer: {
     SMLoc Loc = getTok().getLoc();
     int64_t IntVal = getTok().getIntVal();
@@ -1374,6 +1373,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
     case DK_QUAD:
     case DK_8BYTE:
       return parseDirectiveValue(8);
+    case DK_OCTA:
+      return parseDirectiveOctaValue();
     case DK_SINGLE:
     case DK_FLOAT:
       return parseDirectiveRealValue(APFloat::IEEEsingle);
@@ -2293,6 +2294,56 @@ bool AsmParser::parseDirectiveValue(unsigned Size) {
         getStreamer().EmitIntValue(IntValue, Size);
       } else
         getStreamer().EmitValue(Value, Size);
+
+      if (getLexer().is(AsmToken::EndOfStatement))
+        break;
+
+      // FIXME: Improve diagnostic.
+      if (getLexer().isNot(AsmToken::Comma))
+        return TokError("unexpected token in directive");
+      Lex();
+    }
+  }
+
+  Lex();
+  return false;
+}
+
+/// ParseDirectiveOctaValue
+///  ::= .octa [ hexconstant (, hexconstant)* ]
+bool AsmParser::parseDirectiveOctaValue() {
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    checkForValidSection();
+
+    for (;;) {
+      if (Lexer.getKind() == AsmToken::Error)
+        return true;
+      if (Lexer.getKind() != AsmToken::Integer &&
+          Lexer.getKind() != AsmToken::BigNum)
+        return TokError("unknown token in expression");
+
+      SMLoc ExprLoc = getLexer().getLoc();
+      APInt IntValue = getTok().getAPIntVal();
+      Lex();
+
+      uint64_t hi, lo;
+      if (IntValue.isIntN(64)) {
+        hi = 0;
+        lo = IntValue.getZExtValue();
+      } else if (IntValue.isIntN(128)) {
+        // It might actually have more than 128 bits, but the top ones are zero.
+        hi = IntValue.getHiBits(IntValue.getBitWidth() - 64).getZExtValue();
+        lo = IntValue.getLoBits(64).getZExtValue();
+      } else
+        return Error(ExprLoc, "literal value out of range for directive");
+
+      if (MAI.isLittleEndian()) {
+        getStreamer().EmitIntValue(lo, 8);
+        getStreamer().EmitIntValue(hi, 8);
+      } else {
+        getStreamer().EmitIntValue(hi, 8);
+        getStreamer().EmitIntValue(lo, 8);
+      }
 
       if (getLexer().is(AsmToken::EndOfStatement))
         break;
@@ -3815,6 +3866,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".4byte"] = DK_4BYTE;
   DirectiveKindMap[".quad"] = DK_QUAD;
   DirectiveKindMap[".8byte"] = DK_8BYTE;
+  DirectiveKindMap[".octa"] = DK_OCTA;
   DirectiveKindMap[".single"] = DK_SINGLE;
   DirectiveKindMap[".float"] = DK_FLOAT;
   DirectiveKindMap[".double"] = DK_DOUBLE;
