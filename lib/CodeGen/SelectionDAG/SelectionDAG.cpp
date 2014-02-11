@@ -3549,7 +3549,7 @@ static SDValue getMemsetStringVal(EVT VT, SDLoc dl, SelectionDAG &DAG,
   // If the "cost" of materializing the integer immediate is 1 or free, then
   // it is cost effective to turn the load into the immediate.
   const TargetTransformInfo *TTI = DAG.getTargetTransformInfo();
-  if (TTI->getIntImmCost(Val, VT.getTypeForEVT(*DAG.getContext())) < 2)
+  if (!TTI || TTI->getIntImmCost(Val, VT.getTypeForEVT(*DAG.getContext())) < 2)
     return DAG.getConstant(Val, VT);
   return SDValue(0, 0);
 }

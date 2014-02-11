@@ -47,8 +47,12 @@ extern "C" {
   struct jit_descriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
 
   // Debuggers puts a breakpoint in this function.
-  LLVM_ATTRIBUTE_NOINLINE void __jit_debug_register_code() { }
-
+  LLVM_ATTRIBUTE_NOINLINE void __jit_debug_register_code() {
+    // Prevent this call with no side-effects from being optimized out, see
+    // 'noinline' at http://gcc.gnu.org/onlinedocs/gcc/Function-Attributes.html
+    asm volatile("":::"memory");
+  }
+ 
 }
 
 namespace {
@@ -142,7 +146,13 @@ void GDBJITRegistrar::registerObject(const ObjectBuffer &Object) {
     JITCodeEntry->symfile_addr = Buffer;
     JITCodeEntry->symfile_size = Size;
 
-    ObjectBufferMap[Buffer] = std::make_pair(Size, JITCodeEntry);
+    {
+      // [andrew 20130823] GDBJITRegistrar is static so we'll use the global lock here
+      // but this should really be a member of GDBJITRegistrar
+      llvm::MutexGuard locked(JITDebugLock);
+      ObjectBufferMap[Buffer] = std::make_pair(Size, JITCodeEntry);
+    }
+
     NotifyDebugger(JITCodeEntry);
   }
 }
