@@ -50,7 +50,9 @@ extern "C" {
   LLVM_ATTRIBUTE_NOINLINE void __jit_debug_register_code() {
     // Prevent this call with no side-effects from being optimized out, see
     // 'noinline' at http://gcc.gnu.org/onlinedocs/gcc/Function-Attributes.html
+#ifndef _WIN32
     asm volatile("":::"memory");
+#endif
   }
  
 }
