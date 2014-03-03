@@ -1977,7 +1977,7 @@ void InnerLoopVectorizer::createEmptyLoop() {
   // sequence of instructions that form a check.
   Instruction *StrideCheck;
   Instruction *FirstCheckInst;
-  tie(FirstCheckInst, StrideCheck) =
+  std::tie(FirstCheckInst, StrideCheck) =
       addStrideCheck(BypassBlock->getTerminator());
   if (StrideCheck) {
     // Create a new block containing the stride check.
@@ -2001,7 +2001,7 @@ void InnerLoopVectorizer::createEmptyLoop() {
   // checks into a separate block to make the more common case of few elements
   // faster.
   Instruction *MemRuntimeCheck;
-  tie(FirstCheckInst, MemRuntimeCheck) =
+  std::tie(FirstCheckInst, MemRuntimeCheck) =
       addRuntimeCheck(LastBypassBlock->getTerminator());
   if (MemRuntimeCheck) {
     // Create a new block containing the memory check.
@@ -4339,7 +4339,7 @@ bool MemoryDepChecker::areDepsSafe(AccessAnalysis::DepCandidates &AccessSets,
     // Check every access pair.
     while (AI != AE) {
       CheckDeps.erase(*AI);
-      EquivalenceClasses<MemAccessInfo>::member_iterator OI = llvm::next(AI);
+      EquivalenceClasses<MemAccessInfo>::member_iterator OI = std::next(AI);
       while (OI != AE) {
         // Check every accessing instruction pair in program order.
         for (std::vector<unsigned>::iterator I1 = Accesses[*AI].begin(),

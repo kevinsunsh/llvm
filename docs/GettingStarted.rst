@@ -182,7 +182,7 @@ Package                                                     Version      Notes
    #. If you want to make changes to the configure scripts, you will need GNU
       autoconf (2.60), and consequently, GNU M4 (version 1.4 or higher). You
       will also need automake (1.9.6). We only use aclocal from that package.
-#.Optional, adds compression / uncompression capabilities to selected LLVM
+   #. Optional, adds compression / uncompression capabilities to selected LLVM
       tools.
 
 Additionally, your compilation host is expected to have the usual plethora of
@@ -433,6 +433,7 @@ you can checkout it from the '``tags``' directory (instead of '``trunk``'). The
 following releases are located in the following subdirectories of the '``tags``'
 directory:
 
+* Release 3.4: **RELEASE_34/final**
 * Release 3.3: **RELEASE_33/final**
 * Release 3.2: **RELEASE_32/final**
 * Release 3.1: **RELEASE_31/final**
@@ -560,8 +561,9 @@ Then, your .git/config should have [imap] sections.
         pass = himitsu!
         port = 993
         sslverify = false
-  ;
-in English folder = "[Gmail]/Drafts"; example for Japanese, "Modified UTF-7" encoded.
+  ; in English
+        folder = "[Gmail]/Drafts"
+  ; example for Japanese, "Modified UTF-7" encoded.
         folder = "[Gmail]/&Tgtm+DBN-"
   ; example for Traditional Chinese
         folder = "[Gmail]/&g0l6Pw-"

@@ -239,14 +239,6 @@ namespace {
   };
 
 
-  // Sorting function for deterministic behaviour in GCOVBlock::writeOut.
-  struct StringKeySort {
-    bool operator()(StringMapEntry<GCOVLines *> *LHS,
-                    StringMapEntry<GCOVLines *> *RHS) const {
-      return LHS->getKey() < RHS->getKey();
-    }
-  };
-
   // Represent a basic block in GCOV. Each block has a unique number in the
   // function, number of lines belonging to each block, and a set of edges to
   // other blocks.
@@ -277,8 +269,11 @@ namespace {
       write(Len);
       write(Number);
 
-      StringKeySort Sorter;
-      std::sort(SortedLinesByFile.begin(), SortedLinesByFile.end(), Sorter);
+      std::sort(SortedLinesByFile.begin(), SortedLinesByFile.end(),
+                [](StringMapEntry<GCOVLines *> *LHS,
+                   StringMapEntry<GCOVLines *> *RHS) {
+        return LHS->getKey() < RHS->getKey();
+      });
       for (SmallVectorImpl<StringMapEntry<GCOVLines *> *>::iterator
                I = SortedLinesByFile.begin(), E = SortedLinesByFile.end();
            I != E; ++I) 
@@ -888,7 +883,7 @@ void GCOVProfiler::insertIndirectCounterIncrement() {
   // uint64_t *counter = counters[pred];
   // if (!counter) return;
   Value *ZExtPred = Builder.CreateZExt(Pred, Builder.getInt64Ty());
-  Arg = llvm::next(Fn->arg_begin());
+  Arg = std::next(Fn->arg_begin());
   Arg->setName("counters");
   Value *GEP = Builder.CreateGEP(Arg, ZExtPred);
   Value *Counter = Builder.CreateLoad(GEP, "counter");

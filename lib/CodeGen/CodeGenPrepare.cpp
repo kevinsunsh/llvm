@@ -253,7 +253,7 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
 bool CodeGenPrepare::EliminateFallThrough(Function &F) {
   bool Changed = false;
   // Scan all of the blocks in the function, except for the entry block.
-  for (Function::iterator I = llvm::next(F.begin()), E = F.end(); I != E; ) {
+  for (Function::iterator I = std::next(F.begin()), E = F.end(); I != E;) {
     BasicBlock *BB = I++;
     // If the destination block has a single pred, then this is a trivial
     // edge, just collapse it.
@@ -289,7 +289,7 @@ bool CodeGenPrepare::EliminateFallThrough(Function &F) {
 bool CodeGenPrepare::EliminateMostlyEmptyBlocks(Function &F) {
   bool MadeChange = false;
   // Note that this intentionally skips the entry block.
-  for (Function::iterator I = llvm::next(F.begin()), E = F.end(); I != E; ) {
+  for (Function::iterator I = std::next(F.begin()), E = F.end(); I != E;) {
     BasicBlock *BB = I++;
 
     // If this block doesn't end with an uncond branch, ignore it.
@@ -2725,8 +2725,7 @@ bool CodeGenPrepare::OptimizeSelectInst(SelectInst *SI) {
   return true;
 }
 
-
-bool isBroadcastShuffle(ShuffleVectorInst *SVI) {
+static bool isBroadcastShuffle(ShuffleVectorInst *SVI) {
   SmallVector<int, 16> Mask(SVI->getShuffleMask());
   int SplatElem = -1;
   for (unsigned i = 0; i < Mask.size(); ++i) {

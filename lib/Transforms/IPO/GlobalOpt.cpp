@@ -1926,7 +1926,8 @@ bool GlobalOpt::OptimizeFunctions(Module &M) {
       Changed = true;
       ++NumFnDeleted;
     } else if (F->hasLocalLinkage()) {
-      if (isProfitableToMakeFastCC(F) && !F->isVarArg() && !F->hasAddressTaken()) {
+      if (isProfitableToMakeFastCC(F) && !F->isVarArg() &&
+          !F->hasAddressTaken()) {
         // If this function has a calling convention worth changing, is not a
         // varargs function, and is only called directly, promote it to use the
         // Fast calling convention.
@@ -2187,7 +2188,7 @@ static bool isSimpleEnoughPointerToCommit(Constant *C) {
         return false;
 
       // The first index must be zero.
-      ConstantInt *CI = dyn_cast<ConstantInt>(*llvm::next(CE->op_begin()));
+      ConstantInt *CI = dyn_cast<ConstantInt>(*std::next(CE->op_begin()));
       if (!CI || !CI->isZero()) return false;
 
       // The remaining indices must be compile-time known integers within the

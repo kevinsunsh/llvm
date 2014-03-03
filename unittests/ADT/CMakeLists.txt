@@ -5,6 +5,7 @@ set(LLVM_LINK_COMPONENTS
 set(ADTSources
   APFloatTest.cpp
   APIntTest.cpp
+  APSIntTest.cpp
   ArrayRefTest.cpp
   BitVectorTest.cpp
   DAGDeltaAlgorithmTest.cpp
@@ -21,6 +22,7 @@ set(ADTSources
   IntrusiveRefCntPtrTest.cpp
   MapVectorTest.cpp
   OptionalTest.cpp
+  OwningPtrTest.cpp
   PackedVectorTest.cpp
   PointerUnionTest.cpp
   SCCIteratorTest.cpp
