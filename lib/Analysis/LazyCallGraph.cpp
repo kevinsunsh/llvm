@@ -9,11 +9,11 @@
 
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/ADT/SCCIterator.h"
+#include "llvm/IR/CallSite.h"
+#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/InstVisitor.h"
 
 using namespace llvm;
 

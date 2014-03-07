@@ -15,7 +15,7 @@
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/RegionPass.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/PatternMatch.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 
 using namespace llvm;
@@ -235,15 +235,15 @@ public:
   }
 
   using Pass::doInitialization;
-  virtual bool doInitialization(Region *R, RGPassManager &RGM);
+  bool doInitialization(Region *R, RGPassManager &RGM) override;
 
-  virtual bool runOnRegion(Region *R, RGPassManager &RGM);
+  bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
-  virtual const char *getPassName() const {
+  const char *getPassName() const override {
     return "Structurize control flow";
   }
 
-  void getAnalysisUsage(AnalysisUsage &AU) const {
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredID(LowerSwitchID);
     AU.addRequired<DominatorTreeWrapperPass>();
     AU.addPreserved<DominatorTreeWrapperPass>();

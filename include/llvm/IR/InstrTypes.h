@@ -51,7 +51,7 @@ protected:
   virtual BasicBlock *getSuccessorV(unsigned idx) const = 0;
   virtual unsigned getNumSuccessorsV() const = 0;
   virtual void setSuccessorV(unsigned idx, BasicBlock *B) = 0;
-  virtual TerminatorInst *clone_impl() const = 0;
+  TerminatorInst *clone_impl() const override = 0;
 public:
 
   /// getNumSuccessors - Return the number of successors that this terminator
@@ -580,6 +580,11 @@ public:
   /// @brief Determine if this cast is a no-op cast.
   bool isNoopCast(
     Type *IntPtrTy ///< Integer type corresponding to pointer
+  ) const;
+
+  /// @brief Determine if this cast is a no-op cast.
+  bool isNoopCast(
+    const DataLayout *DL ///< DataLayout to get the Int Ptr type from.
   ) const;
 
   /// Determine how a pair of casts can be eliminated, if they can be at all.

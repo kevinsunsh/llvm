@@ -17,8 +17,8 @@
 #include "DwarfAccelTable.h"
 #include "DwarfDebug.h"
 #include "llvm/ADT/APFloat.h"
-#include "llvm/DIBuilder.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instructions.h"
@@ -231,6 +231,16 @@ void DwarfUnit::addExpr(DIELoc *Die, dwarf::Form Form, const MCExpr *Expr) {
   Die->addValue((dwarf::Attribute)0, Form, Value);
 }
 
+/// addLocationList - Add a Dwarf loclistptr attribute data and value.
+///
+void DwarfUnit::addLocationList(DIE *Die, dwarf::Attribute Attribute,
+                                unsigned Index) {
+  DIEValue *Value = new (DIEValueAllocator) DIELocList(Index);
+  dwarf::Form Form = DD->getDwarfVersion() >= 4 ? dwarf::DW_FORM_sec_offset
+                                                : dwarf::DW_FORM_data4;
+  Die->addValue(Attribute, Form, Value);
+}
+
 /// addLabel - Add a Dwarf label attribute data and value.
 ///
 void DwarfUnit::addLabel(DIE *Die, dwarf::Attribute Attribute, dwarf::Form Form,
@@ -308,6 +318,12 @@ void DwarfUnit::addSectionDelta(DIE *Die, dwarf::Attribute Attribute,
     Die->addValue(Attribute, dwarf::DW_FORM_sec_offset, Value);
   else
     Die->addValue(Attribute, dwarf::DW_FORM_data4, Value);
+}
+
+void DwarfUnit::addLabelDelta(DIE *Die, dwarf::Attribute Attribute,
+                              const MCSymbol *Hi, const MCSymbol *Lo) {
+  DIEValue *Value = new (DIEValueAllocator) DIEDelta(Hi, Lo);
+  Die->addValue(Attribute, dwarf::DW_FORM_data4, Value);
 }
 
 /// addDIEEntry - Add a DIE attribute data and value.
@@ -948,6 +964,8 @@ DIE *DwarfUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
   // Create new type.
   TyDIE = createAndAddDIE(Ty.getTag(), *ContextDIE, Ty);
 
+  updateAcceleratorTables(Context, Ty, TyDIE);
+
   if (Ty.isBasicType())
     constructTypeDIE(*TyDIE, DIBasicType(Ty));
   else if (Ty.isCompositeType()) {
@@ -963,8 +981,6 @@ DIE *DwarfUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
     assert(Ty.isDerivedType() && "Unknown kind of DIType");
     constructTypeDIE(*TyDIE, DIDerivedType(Ty));
   }
-
-  updateAcceleratorTables(Context, Ty, TyDIE);
 
   return TyDIE;
 }
@@ -1796,8 +1812,7 @@ DIE *DwarfUnit::constructVariableDIE(DbgVariable &DV, bool isScopeAbstract) {
 
   unsigned Offset = DV.getDotDebugLocOffset();
   if (Offset != ~0U) {
-    addSectionLabel(VariableDie, dwarf::DW_AT_location,
-                    Asm->GetTempSymbol("debug_loc", Offset));
+    addLocationList(VariableDie, dwarf::DW_AT_location, Offset);
     DV.setDIE(VariableDie);
     return VariableDie;
   }

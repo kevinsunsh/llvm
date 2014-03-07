@@ -30,7 +30,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
-#include "llvm/Support/ValueHandle.h"
+#include "llvm/IR/ValueHandle.h"
 #include <vector>
 
 namespace llvm {
@@ -225,9 +225,9 @@ public:
   MDNode *get() const {
     return cast_or_null<MDNode>(getValPtr());
   }
-  
-  virtual void deleted();
-  virtual void allUsesReplacedWith(Value *VNew);
+
+  void deleted() override;
+  void allUsesReplacedWith(Value *VNew) override;
 };
   
 class LLVMContextImpl {

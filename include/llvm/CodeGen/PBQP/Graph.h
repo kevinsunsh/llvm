@@ -312,7 +312,6 @@ namespace PBQP {
     /// \brief Set a node's cost vector.
     /// @param NId Node to update.
     /// @param Costs New costs to set.
-    /// @return Node cost vector.
     template <typename OtherVectorT>
     void setNodeCosts(NodeId NId, OtherVectorT Costs) {
       VectorPtr AllocatedCosts = CostAlloc.getVector(std::move(Costs));
@@ -540,7 +539,7 @@ namespace PBQP {
     }
 
     /// \brief Print a representation of this graph in DOT format.
-    /// @param os Output stream to print on.
+    /// @param OS Output stream to print on.
     template <typename OStream>
     void printDot(OStream &OS) {
       OS << "graph {\n";

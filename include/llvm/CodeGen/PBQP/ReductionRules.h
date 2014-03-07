@@ -125,11 +125,9 @@ namespace PBQP {
       delete ZXECosts;
 
     EdgeId YZEId = G.findEdge(YNId, ZNId);
-    bool AddedEdge = false;
 
     if (YZEId == G.invalidEdgeId()) {
       YZEId = G.addEdge(YNId, ZNId, Delta);
-      AddedEdge = true;
     } else {
       const Matrix &YZECosts = G.getEdgeCosts(YZEId);
       if (YNId == G.getEdgeNode1Id(YZEId)) {
@@ -160,7 +158,6 @@ namespace PBQP {
   template <typename GraphT, typename StackT>
   Solution backpropagate(GraphT& G, StackT stack) {
     typedef GraphBase::NodeId NodeId;
-    typedef GraphBase::EdgeId EdgeId;
     typedef typename GraphT::Matrix Matrix;
     typedef typename GraphT::RawVector RawVector;
 
