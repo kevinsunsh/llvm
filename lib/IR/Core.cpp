@@ -514,7 +514,7 @@ LLVMUseRef LLVMGetFirstUse(LLVMValueRef Val) {
   Value::use_iterator I = V->use_begin();
   if (I == V->use_end())
     return 0;
-  return wrap(&(I.getUse()));
+  return wrap(&*I);
 }
 
 LLVMUseRef LLVMGetNextUse(LLVMUseRef U) {
@@ -1260,6 +1260,14 @@ LLVMDLLStorageClass LLVMGetDLLStorageClass(LLVMValueRef Global) {
 void LLVMSetDLLStorageClass(LLVMValueRef Global, LLVMDLLStorageClass Class) {
   unwrap<GlobalValue>(Global)->setDLLStorageClass(
       static_cast<GlobalValue::DLLStorageClassTypes>(Class));
+}
+
+LLVMBool LLVMHasUnnamedAddr(LLVMValueRef Global) {
+  return unwrap<GlobalValue>(Global)->hasUnnamedAddr();
+}
+
+void LLVMSetUnnamedAddr(LLVMValueRef Global, LLVMBool HasUnnamedAddr) {
+  unwrap<GlobalValue>(Global)->setUnnamedAddr(HasUnnamedAddr);
 }
 
 /*--.. Operations on global variables, load and store instructions .........--*/

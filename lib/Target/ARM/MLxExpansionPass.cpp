@@ -40,9 +40,9 @@ namespace {
     static char ID;
     MLxExpansion() : MachineFunctionPass(ID) {}
 
-    virtual bool runOnMachineFunction(MachineFunction &Fn);
+    bool runOnMachineFunction(MachineFunction &Fn) override;
 
-    virtual const char *getPassName() const {
+    const char *getPassName() const override {
       return "ARM MLA / MLS expansion pass";
     }
 
@@ -385,11 +385,8 @@ bool MLxExpansion::runOnMachineFunction(MachineFunction &Fn) {
   isSwift = STI->isSwift();
 
   bool Modified = false;
-  for (MachineFunction::iterator MFI = Fn.begin(), E = Fn.end(); MFI != E;
-       ++MFI) {
-    MachineBasicBlock &MBB = *MFI;
+  for (MachineBasicBlock &MBB : Fn)
     Modified |= ExpandFPMLxInstructions(MBB);
-  }
 
   return Modified;
 }

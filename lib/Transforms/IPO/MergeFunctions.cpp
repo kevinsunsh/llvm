@@ -341,7 +341,10 @@ bool FunctionComparator::isEquivalentOperation(const Instruction *I1,
            FI->getSynchScope() == cast<FenceInst>(I2)->getSynchScope();
   if (const AtomicCmpXchgInst *CXI = dyn_cast<AtomicCmpXchgInst>(I1))
     return CXI->isVolatile() == cast<AtomicCmpXchgInst>(I2)->isVolatile() &&
-           CXI->getOrdering() == cast<AtomicCmpXchgInst>(I2)->getOrdering() &&
+           CXI->getSuccessOrdering() ==
+               cast<AtomicCmpXchgInst>(I2)->getSuccessOrdering() &&
+           CXI->getFailureOrdering() ==
+               cast<AtomicCmpXchgInst>(I2)->getFailureOrdering() &&
            CXI->getSynchScope() == cast<AtomicCmpXchgInst>(I2)->getSynchScope();
   if (const AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(I1))
     return RMWI->getOperation() == cast<AtomicRMWInst>(I2)->getOperation() &&
@@ -697,14 +700,13 @@ bool DenseMapInfo<ComparableFunction>::isEqual(const ComparableFunction &LHS,
 // Replace direct callers of Old with New.
 void MergeFunctions::replaceDirectCallers(Function *Old, Function *New) {
   Constant *BitcastNew = ConstantExpr::getBitCast(New, Old->getType());
-  for (Value::use_iterator UI = Old->use_begin(), UE = Old->use_end();
-       UI != UE;) {
-    Value::use_iterator TheIter = UI;
+  for (auto UI = Old->use_begin(), UE = Old->use_end(); UI != UE;) {
+    Use *U = &*UI;
     ++UI;
-    CallSite CS(*TheIter);
-    if (CS && CS.isCallee(TheIter)) {
+    CallSite CS(U->getUser());
+    if (CS && CS.isCallee(U)) {
       remove(CS.getInstruction()->getParent()->getParent());
-      TheIter.getUse().set(BitcastNew);
+      U->set(BitcastNew);
     }
   }
 }
@@ -895,17 +897,14 @@ void MergeFunctions::removeUsers(Value *V) {
     Value *V = Worklist.back();
     Worklist.pop_back();
 
-    for (Value::use_iterator UI = V->use_begin(), UE = V->use_end();
-         UI != UE; ++UI) {
-      Use &U = UI.getUse();
-      if (Instruction *I = dyn_cast<Instruction>(U.getUser())) {
+    for (User *U : V->users()) {
+      if (Instruction *I = dyn_cast<Instruction>(U)) {
         remove(I->getParent()->getParent());
-      } else if (isa<GlobalValue>(U.getUser())) {
+      } else if (isa<GlobalValue>(U)) {
         // do nothing
-      } else if (Constant *C = dyn_cast<Constant>(U.getUser())) {
-        for (Value::use_iterator CUI = C->use_begin(), CUE = C->use_end();
-             CUI != CUE; ++CUI)
-          Worklist.push_back(*CUI);
+      } else if (Constant *C = dyn_cast<Constant>(U)) {
+        for (User *UU : C->users())
+          Worklist.push_back(UU);
       }
     }
   }
