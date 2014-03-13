@@ -751,8 +751,9 @@ static uint64_t getBaseTypeSize(DwarfDebug *DD, DIDerivedType Ty) {
 
   DIType BaseType = DD->resolve(Ty.getTypeDerivedFrom());
 
-  // If this type is not derived from any type then take conservative approach.
-  if (!BaseType.isValid())
+  // If this type is not derived from any type or the type is a declaration then
+  // take conservative approach.
+  if (!BaseType.isValid() || BaseType.isForwardDecl())
     return Ty.getSizeInBits();
 
   // If this is a derived type, go ahead and get the base type, unless it's a
@@ -1891,10 +1892,9 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, DIDerivedType DT) {
     uint64_t OffsetInBytes;
 
     if (Size != FieldSize) {
-      // Handle bitfield.
-      addUInt(MemberDie, dwarf::DW_AT_byte_size, None,
-              getBaseTypeSize(DD, DT) >> 3);
-      addUInt(MemberDie, dwarf::DW_AT_bit_size, None, DT.getSizeInBits());
+      // Handle bitfield, assume bytes are 8 bits.
+      addUInt(MemberDie, dwarf::DW_AT_byte_size, None, FieldSize/8);
+      addUInt(MemberDie, dwarf::DW_AT_bit_size, None, Size);
 
       uint64_t Offset = DT.getOffsetInBits();
       uint64_t AlignMask = ~(DT.getAlignInBits() - 1);

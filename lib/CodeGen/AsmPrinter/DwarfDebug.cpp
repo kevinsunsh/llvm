@@ -62,7 +62,7 @@ static cl::opt<bool> UnknownLocations(
 
 static cl::opt<bool> GenerateCUHash("generate-cu-hash", cl::Hidden,
                                     cl::desc("Add the CU hash as the dwo_id."),
-                                    cl::init(false));
+                                    cl::init(true));
 
 static cl::opt<bool>
 GenerateGnuPubSections("generate-gnu-dwarf-pub-sections", cl::Hidden,
@@ -838,11 +838,9 @@ void DwarfDebug::constructImportedEntityDIE(DwarfCompileUnit *TheCU,
     EntityDie = TheCU->getOrCreateTypeDIE(DIType(Entity));
   else
     EntityDie = TheCU->getDIE(Entity);
-  unsigned FileID = getOrCreateSourceID(Module.getContext().getFilename(),
-                                        Module.getContext().getDirectory(),
-                                        TheCU->getUniqueID());
-  TheCU->addUInt(IMDie, dwarf::DW_AT_decl_file, None, FileID);
-  TheCU->addUInt(IMDie, dwarf::DW_AT_decl_line, None, Module.getLineNumber());
+  TheCU->addSourceLine(IMDie, Module.getLineNumber(),
+                       Module.getContext().getFilename(),
+                       Module.getContext().getDirectory());
   TheCU->addDIEEntry(IMDie, dwarf::DW_AT_import, EntityDie);
   StringRef Name = Module.getName();
   if (!Name.empty())
