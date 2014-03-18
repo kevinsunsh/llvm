@@ -15,13 +15,17 @@
 #ifndef LLVM_MC_MCDWARF_H
 #define LLVM_MC_MCDWARF_H
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/raw_ostream.h"
 #include <map>
 #include <vector>
+#include <string>
+#include <utility>
 
 namespace llvm {
 class MCAsmBackend;
@@ -37,40 +41,14 @@ class SMLoc;
 /// and MCDwarfFile's are created and unique'd by the MCContext class where
 /// the file number for each is its index into the vector of DwarfFiles (note
 /// index 0 is not used and not a valid dwarf file number).
-class MCDwarfFile {
+struct MCDwarfFile {
   // Name - the base name of the file without its directory path.
   // The StringRef references memory allocated in the MCContext.
-  StringRef Name;
+  std::string Name;
 
   // DirIndex - the index into the list of directory names for this file name.
   unsigned DirIndex;
-
-private: // MCContext creates and uniques these.
-  friend class MCContext;
-  MCDwarfFile(StringRef name, unsigned dirIndex)
-      : Name(name), DirIndex(dirIndex) {}
-
-  MCDwarfFile(const MCDwarfFile &) LLVM_DELETED_FUNCTION;
-  void operator=(const MCDwarfFile &) LLVM_DELETED_FUNCTION;
-
-public:
-  /// getName - Get the base name of this MCDwarfFile.
-  StringRef getName() const { return Name; }
-
-  /// getDirIndex - Get the dirIndex of this MCDwarfFile.
-  unsigned getDirIndex() const { return DirIndex; }
-
-  /// print - Print the value to the stream \p OS.
-  void print(raw_ostream &OS) const;
-
-  /// dump - Print the value to stderr.
-  void dump() const;
 };
-
-inline raw_ostream &operator<<(raw_ostream &OS, const MCDwarfFile &DwarfFile) {
-  DwarfFile.print(OS);
-  return OS;
-}
 
 /// MCDwarfLoc - Instances of this class represent the information from a
 /// dwarf .loc directive.
@@ -199,16 +177,78 @@ public:
   }
 };
 
-class MCDwarfFileTable {
+struct MCDwarfLineTableHeader {
+  MCSymbol *Label;
+  SmallVector<std::string, 3> MCDwarfDirs;
+  SmallVector<MCDwarfFile, 3> MCDwarfFiles;
+  StringMap<unsigned> SourceIdMap;
+  StringRef CompilationDir;
+
+  MCDwarfLineTableHeader() : Label(nullptr) {}
+  unsigned getFile(StringRef &Directory, StringRef &FileName,
+                   unsigned FileNumber = 0);
+  std::pair<MCSymbol *, MCSymbol *> Emit(MCStreamer *MCOS) const;
+  std::pair<MCSymbol *, MCSymbol *>
+  Emit(MCStreamer *MCOS, ArrayRef<char> SpecialOpcodeLengths) const;
+};
+
+class MCDwarfDwoLineTable {
+  MCDwarfLineTableHeader Header;
 public:
-  //
+  unsigned getFile(StringRef Directory, StringRef FileName) {
+    return Header.getFile(Directory, FileName);
+  }
+  void Emit(MCStreamer &MCOS) const;
+};
+
+class MCDwarfLineTable {
+  MCDwarfLineTableHeader Header;
+  MCLineSection MCLineSections;
+
+public:
   // This emits the Dwarf file and the line tables for all Compile Units.
-  //
   static const MCSymbol *Emit(MCStreamer *MCOS);
-  //
+
   // This emits the Dwarf file and the line tables for a given Compile Unit.
-  //
-  static const MCSymbol *EmitCU(MCStreamer *MCOS, unsigned ID);
+  const MCSymbol *EmitCU(MCStreamer *MCOS) const;
+
+  unsigned getFile(StringRef &Directory, StringRef &FileName,
+                   unsigned FileNumber = 0);
+
+  MCSymbol *getLabel() const {
+    return Header.Label;
+  }
+
+  void setLabel(MCSymbol *Label) {
+    Header.Label = Label;
+  }
+
+  void setCompilationDir(StringRef CompilationDir) {
+    Header.CompilationDir = CompilationDir;
+  }
+
+  const SmallVectorImpl<std::string> &getMCDwarfDirs() const {
+    return Header.MCDwarfDirs;
+  }
+
+  SmallVectorImpl<std::string> &getMCDwarfDirs() {
+    return Header.MCDwarfDirs;
+  }
+
+  const SmallVectorImpl<MCDwarfFile> &getMCDwarfFiles() const {
+    return Header.MCDwarfFiles;
+  }
+
+  SmallVectorImpl<MCDwarfFile> &getMCDwarfFiles() {
+    return Header.MCDwarfFiles;
+  }
+
+  const MCLineSection &getMCLineSections() const {
+    return MCLineSections;
+  }
+  MCLineSection &getMCLineSections() {
+    return MCLineSections;
+  }
 };
 
 class MCDwarfLineAddr {

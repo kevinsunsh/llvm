@@ -605,16 +605,14 @@ static bool consumeCompressedDebugSectionHeader(StringRef &data,
   return true;
 }
 
-DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj) :
-  IsLittleEndian(Obj->isLittleEndian()),
-  AddressSize(Obj->getBytesInAddress()) {
-  for (object::section_iterator i = Obj->section_begin(),
-                                e = Obj->section_end();
-       i != e; ++i) {
+DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj)
+    : IsLittleEndian(Obj->isLittleEndian()),
+      AddressSize(Obj->getBytesInAddress()) {
+  for (const SectionRef &Section : Obj->sections()) {
     StringRef name;
-    i->getName(name);
+    Section.getName(name);
     StringRef data;
-    i->getContents(data);
+    Section.getContents(data);
 
     name = name.substr(name.find_first_not_of("._")); // Skip . and _ prefixes.
 
@@ -634,7 +632,7 @@ DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj) :
       UncompressedSections.push_back(std::move(UncompressedSection));
     }
 
-    StringRef *Section =
+    StringRef *SectionData =
         StringSwitch<StringRef *>(name)
             .Case("debug_info", &InfoSection.Data)
             .Case("debug_abbrev", &AbbrevSection)
@@ -656,8 +654,8 @@ DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj) :
             .Case("debug_addr", &AddrSection)
             // Any more debug info sections go here.
             .Default(0);
-    if (Section) {
-      *Section = data;
+    if (SectionData) {
+      *SectionData = data;
       if (name == "debug_ranges") {
         // FIXME: Use the other dwo range section when we emit it.
         RangeDWOSection = data;
@@ -665,12 +663,12 @@ DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj) :
     } else if (name == "debug_types") {
       // Find debug_types data by section rather than name as there are
       // multiple, comdat grouped, debug_types sections.
-      TypesSections[*i].Data = data;
+      TypesSections[Section].Data = data;
     } else if (name == "debug_types.dwo") {
-      TypesDWOSections[*i].Data = data;
+      TypesDWOSections[Section].Data = data;
     }
 
-    section_iterator RelocatedSection = i->getRelocatedSection();
+    section_iterator RelocatedSection = Section.getRelocatedSection();
     if (RelocatedSection == Obj->section_end())
       continue;
 
@@ -698,29 +696,27 @@ DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj) :
         continue;
     }
 
-    if (i->relocation_begin() != i->relocation_end()) {
+    if (Section.relocation_begin() != Section.relocation_end()) {
       uint64_t SectionSize;
       RelocatedSection->getSize(SectionSize);
-      for (object::relocation_iterator reloc_i = i->relocation_begin(),
-                                       reloc_e = i->relocation_end();
-           reloc_i != reloc_e; ++reloc_i) {
+      for (const RelocationRef &Reloc : Section.relocations()) {
         uint64_t Address;
-        reloc_i->getOffset(Address);
+        Reloc.getOffset(Address);
         uint64_t Type;
-        reloc_i->getType(Type);
+        Reloc.getType(Type);
         uint64_t SymAddr = 0;
         // ELF relocations may need the symbol address
         if (Obj->isELF()) {
-          object::symbol_iterator Sym = reloc_i->getSymbol();
+          object::symbol_iterator Sym = Reloc.getSymbol();
           Sym->getAddress(SymAddr);
         }
 
         object::RelocVisitor V(Obj->getFileFormatName());
         // The section address is always 0 for debug sections.
-        object::RelocToApply R(V.visit(Type, *reloc_i, 0, SymAddr));
+        object::RelocToApply R(V.visit(Type, Reloc, 0, SymAddr));
         if (V.error()) {
           SmallString<32> Name;
-          error_code ec(reloc_i->getTypeName(Name));
+          error_code ec(Reloc.getTypeName(Name));
           if (ec) {
             errs() << "Aaaaaa! Nameless relocation! Aaaaaa!\n";
           }

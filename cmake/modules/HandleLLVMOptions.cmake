@@ -307,9 +307,7 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
     check_cxx_compiler_flag("-Werror -Wnon-virtual-dtor" CXX_SUPPORTS_NON_VIRTUAL_DTOR_FLAG)
     append_if(CXX_SUPPORTS_NON_VIRTUAL_DTOR_FLAG "-Wnon-virtual-dtor" CMAKE_CXX_FLAGS)
   endif (LLVM_ENABLE_WARNINGS)
-  if (LLVM_ENABLE_WERROR)
-    add_llvm_definitions( -Werror )
-  endif (LLVM_ENABLE_WERROR)
+  append_if(LLVM_ENABLE_WERROR "-Werror" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   if (LLVM_ENABLE_CXX1Y)
     check_cxx_compiler_flag("-std=c++1y" CXX_SUPPORTS_CXX1Y)
     append_if(CXX_SUPPORTS_CXX1Y "-std=c++1y" CMAKE_CXX_FLAGS)
@@ -399,6 +397,15 @@ if(NOT CYGWIN AND NOT WIN32)
     append_if(C_SUPPORTS_FDATA_SECTIONS "-fdata-sections" CMAKE_C_FLAGS)
     append_if(CXX_SUPPORTS_FDATA_SECTIONS "-fdata-sections" CMAKE_CXX_FLAGS)
   endif()
+endif()
+
+if(CYGWIN OR MINGW)
+  # Prune --out-implib from executables. It doesn't make sense even
+  # with --export-all-symbols.
+  string(REGEX REPLACE "-Wl,--out-implib,[^ ]+ " " "
+    CMAKE_C_LINK_EXECUTABLE "${CMAKE_C_LINK_EXECUTABLE}")
+  string(REGEX REPLACE "-Wl,--out-implib,[^ ]+ " " "
+    CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE}")
 endif()
 
 if(MSVC)

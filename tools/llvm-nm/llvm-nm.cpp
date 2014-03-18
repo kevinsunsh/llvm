@@ -300,7 +300,7 @@ static char getSymbolNMTypeChar(ELFObjectFile<ELFT> &Obj,
 }
 
 static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
-  const coff_symbol *Symb = Obj.getCOFFSymbol(I);
+  const coff_symbol *Symb = Obj.getCOFFSymbol(*I);
   // OK, this is COFF.
   symbol_iterator SymI(I);
 
@@ -317,11 +317,13 @@ static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
     return Ret;
 
   uint32_t Characteristics = 0;
-  if (Symb->SectionNumber > 0) {
+  if (Symb->SectionNumber > 0 &&
+      Symb->SectionNumber != llvm::COFF::IMAGE_SYM_DEBUG &&
+      Symb->SectionNumber != llvm::COFF::IMAGE_SYM_ABSOLUTE) {
     section_iterator SecI = Obj.section_end();
     if (error(SymI->getSection(SecI)))
       return '?';
-    const coff_section *Section = Obj.getCOFFSection(SecI);
+    const coff_section *Section = Obj.getCOFFSection(*SecI);
     Characteristics = Section->Characteristics;
   }
 
