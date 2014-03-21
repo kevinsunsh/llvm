@@ -133,6 +133,8 @@ public:
   void EmitAssemblerFlag(MCAssemblerFlag Flag) override;
   void EmitLinkerOptions(ArrayRef<std::string> Options) override;
   void EmitDataRegion(MCDataRegionType Kind) override;
+  void EmitVersionMin(MCVersionMinType Kind, unsigned Major, unsigned Minor,
+                      unsigned Update) override;
   void EmitThumbFunc(MCSymbol *Func) override;
 
   void EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) override;
@@ -380,6 +382,18 @@ void MCAsmStreamer::EmitDataRegion(MCDataRegionType Kind) {
   EmitEOL();
 }
 
+void MCAsmStreamer::EmitVersionMin(MCVersionMinType Kind, unsigned Major,
+                                   unsigned Minor, unsigned Update) {
+  switch (Kind) {
+  case MCVM_IOSVersionMin:        OS << "\t.ios_version_min"; break;
+  case MCVM_OSXVersionMin:        OS << "\t.macosx_version_min"; break;
+  }
+  OS << " " << Major << ", " << Minor;
+  if (Update)
+    OS << ", " << Update;
+  EmitEOL();
+}
+
 void MCAsmStreamer::EmitThumbFunc(MCSymbol *Func) {
   // This needs to emit to a temporary string to get properly quoted
   // MCSymbols when they have spaces in them.
@@ -394,8 +408,7 @@ void MCAsmStreamer::EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
   OS << *Symbol << " = " << *Value;
   EmitEOL();
 
-  // FIXME: Lift context changes into super class.
-  Symbol->setVariableValue(Value);
+  MCStreamer::EmitAssignment(Symbol, Value);
 }
 
 void MCAsmStreamer::EmitWeakReference(MCSymbol *Alias, const MCSymbol *Symbol) {

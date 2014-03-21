@@ -382,6 +382,9 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     }
   }
 
+  StringRef Fmt = Obj->getBytesInAddress() > 4 ? "\t\t%016" PRIx64 ":  " :
+                                                 "\t\t\t%08" PRIx64 ":  ";
+
   // Create a mapping, RelocSecs = SectionRelocMap[S], where sections
   // in RelocSecs contain the relocations for section S.
   error_code EC;
@@ -536,7 +539,7 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
           if (error(rel_cur->getTypeName(name))) goto skip_print_rel;
           if (error(rel_cur->getValueString(val))) goto skip_print_rel;
 
-          outs() << format("\t\t\t%8" PRIx64 ": ", SectionAddr + addr) << name
+          outs() << format(Fmt.data(), SectionAddr + addr) << name
                  << "\t" << val << "\n";
 
         skip_print_rel:
@@ -548,6 +551,8 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
 }
 
 static void PrintRelocations(const ObjectFile *Obj) {
+  StringRef Fmt = Obj->getBytesInAddress() > 4 ? "%016" PRIx64 :
+                                                 "%08" PRIx64;
   for (const SectionRef &Section : Obj->sections()) {
     if (Section.relocation_begin() == Section.relocation_end())
       continue;
@@ -570,7 +575,8 @@ static void PrintRelocations(const ObjectFile *Obj) {
         continue;
       if (error(Reloc.getValueString(valuestr)))
         continue;
-      outs() << address << " " << relocname << " " << valuestr << "\n";
+      outs() << format(Fmt.data(), address) << " " << relocname << " "
+             << valuestr << "\n";
     }
     outs() << "\n";
   }
@@ -663,8 +669,7 @@ static void PrintCOFFSymbolTable(const COFFObjectFile *coff) {
   for (int i = 0, e = header->NumberOfSymbols; i != e; ++i) {
     if (aux_count--) {
       // Figure out which type of aux this is.
-      if (symbol->StorageClass == COFF::IMAGE_SYM_CLASS_STATIC
-          && symbol->Value == 0) { // Section definition.
+      if (symbol->isSectionDefinition()) { // Section definition.
         const coff_aux_section_definition *asd;
         if (error(coff->getAuxSymbol<coff_aux_section_definition>(i, asd)))
           return;
@@ -699,79 +704,79 @@ static void PrintCOFFSymbolTable(const COFFObjectFile *coff) {
 static void PrintSymbolTable(const ObjectFile *o) {
   outs() << "SYMBOL TABLE:\n";
 
-  if (const COFFObjectFile *coff = dyn_cast<const COFFObjectFile>(o))
+  if (const COFFObjectFile *coff = dyn_cast<const COFFObjectFile>(o)) {
     PrintCOFFSymbolTable(coff);
-  else {
-    for (const SymbolRef &Symbol : o->symbols()) {
-      StringRef Name;
-      uint64_t Address;
-      SymbolRef::Type Type;
-      uint64_t Size;
-      uint32_t Flags = Symbol.getFlags();
-      section_iterator Section = o->section_end();
-      if (error(Symbol.getName(Name)))
-        continue;
-      if (error(Symbol.getAddress(Address)))
-        continue;
-      if (error(Symbol.getType(Type)))
-        continue;
-      if (error(Symbol.getSize(Size)))
-        continue;
-      if (error(Symbol.getSection(Section)))
-        continue;
+    return;
+  }
+  for (const SymbolRef &Symbol : o->symbols()) {
+    StringRef Name;
+    uint64_t Address;
+    SymbolRef::Type Type;
+    uint64_t Size;
+    uint32_t Flags = Symbol.getFlags();
+    section_iterator Section = o->section_end();
+    if (error(Symbol.getName(Name)))
+      continue;
+    if (error(Symbol.getAddress(Address)))
+      continue;
+    if (error(Symbol.getType(Type)))
+      continue;
+    if (error(Symbol.getSize(Size)))
+      continue;
+    if (error(Symbol.getSection(Section)))
+      continue;
 
-      bool Global = Flags & SymbolRef::SF_Global;
-      bool Weak = Flags & SymbolRef::SF_Weak;
-      bool Absolute = Flags & SymbolRef::SF_Absolute;
+    bool Global = Flags & SymbolRef::SF_Global;
+    bool Weak = Flags & SymbolRef::SF_Weak;
+    bool Absolute = Flags & SymbolRef::SF_Absolute;
 
-      if (Address == UnknownAddressOrSize)
-        Address = 0;
-      if (Size == UnknownAddressOrSize)
-        Size = 0;
-      char GlobLoc = ' ';
-      if (Type != SymbolRef::ST_Unknown)
-        GlobLoc = Global ? 'g' : 'l';
-      char Debug = (Type == SymbolRef::ST_Debug || Type == SymbolRef::ST_File)
-                   ? 'd' : ' ';
-      char FileFunc = ' ';
-      if (Type == SymbolRef::ST_File)
-        FileFunc = 'f';
-      else if (Type == SymbolRef::ST_Function)
-        FileFunc = 'F';
+    if (Address == UnknownAddressOrSize)
+      Address = 0;
+    if (Size == UnknownAddressOrSize)
+      Size = 0;
+    char GlobLoc = ' ';
+    if (Type != SymbolRef::ST_Unknown)
+      GlobLoc = Global ? 'g' : 'l';
+    char Debug = (Type == SymbolRef::ST_Debug || Type == SymbolRef::ST_File)
+                 ? 'd' : ' ';
+    char FileFunc = ' ';
+    if (Type == SymbolRef::ST_File)
+      FileFunc = 'f';
+    else if (Type == SymbolRef::ST_Function)
+      FileFunc = 'F';
 
-      const char *Fmt = o->getBytesInAddress() > 4 ? "%016" PRIx64 :
-                                                     "%08" PRIx64;
+    const char *Fmt = o->getBytesInAddress() > 4 ? "%016" PRIx64 :
+                                                   "%08" PRIx64;
 
-      outs() << format(Fmt, Address) << " "
-             << GlobLoc // Local -> 'l', Global -> 'g', Neither -> ' '
-             << (Weak ? 'w' : ' ') // Weak?
-             << ' ' // Constructor. Not supported yet.
-             << ' ' // Warning. Not supported yet.
-             << ' ' // Indirect reference to another symbol.
-             << Debug // Debugging (d) or dynamic (D) symbol.
-             << FileFunc // Name of function (F), file (f) or object (O).
-             << ' ';
-      if (Absolute)
-        outs() << "*ABS*";
-      else if (Section == o->section_end())
-        outs() << "*UND*";
-      else {
-        if (const MachOObjectFile *MachO =
-            dyn_cast<const MachOObjectFile>(o)) {
-          DataRefImpl DR = Section->getRawDataRefImpl();
-          StringRef SegmentName = MachO->getSectionFinalSegmentName(DR);
-          outs() << SegmentName << ",";
-        }
-        StringRef SectionName;
-        if (error(Section->getName(SectionName)))
-          SectionName = "";
-        outs() << SectionName;
+    outs() << format(Fmt, Address) << " "
+           << GlobLoc // Local -> 'l', Global -> 'g', Neither -> ' '
+           << (Weak ? 'w' : ' ') // Weak?
+           << ' ' // Constructor. Not supported yet.
+           << ' ' // Warning. Not supported yet.
+           << ' ' // Indirect reference to another symbol.
+           << Debug // Debugging (d) or dynamic (D) symbol.
+           << FileFunc // Name of function (F), file (f) or object (O).
+           << ' ';
+    if (Absolute) {
+      outs() << "*ABS*";
+    } else if (Section == o->section_end()) {
+      outs() << "*UND*";
+    } else {
+      if (const MachOObjectFile *MachO =
+          dyn_cast<const MachOObjectFile>(o)) {
+        DataRefImpl DR = Section->getRawDataRefImpl();
+        StringRef SegmentName = MachO->getSectionFinalSegmentName(DR);
+        outs() << SegmentName << ",";
       }
-      outs() << '\t'
-             << format("%08" PRIx64 " ", Size)
-             << Name
-             << '\n';
+      StringRef SectionName;
+      if (error(Section->getName(SectionName)))
+        SectionName = "";
+      outs() << SectionName;
     }
+    outs() << '\t'
+           << format("%08" PRIx64 " ", Size)
+           << Name
+           << '\n';
   }
 }
 

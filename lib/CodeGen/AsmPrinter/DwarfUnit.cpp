@@ -282,22 +282,31 @@ void DwarfUnit::addSectionOffset(DIE *Die, dwarf::Attribute Attribute,
 /// DW_FORM_addr or DW_FORM_GNU_addr_index.
 ///
 void DwarfCompileUnit::addLabelAddress(DIE *Die, dwarf::Attribute Attribute,
-                                       MCSymbol *Label) {
+                                       const MCSymbol *Label) {
+
+  if (!DD->useSplitDwarf())
+    return addLocalLabelAddress(Die, Attribute, Label);
+
   if (Label)
     DD->addArangeLabel(SymbolCU(this, Label));
 
-  if (!DD->useSplitDwarf()) {
-    if (Label) {
-      DIEValue *Value = new (DIEValueAllocator) DIELabel(Label);
-      Die->addValue(Attribute, dwarf::DW_FORM_addr, Value);
-    } else {
-      DIEValue *Value = new (DIEValueAllocator) DIEInteger(0);
-      Die->addValue(Attribute, dwarf::DW_FORM_addr, Value);
-    }
+  unsigned idx = DU->getAddrPoolIndex(Label);
+  DIEValue *Value = new (DIEValueAllocator) DIEInteger(idx);
+  Die->addValue(Attribute, dwarf::DW_FORM_GNU_addr_index, Value);
+}
+
+void DwarfCompileUnit::addLocalLabelAddress(DIE *Die,
+                                            dwarf::Attribute Attribute,
+                                            const MCSymbol *Label) {
+  if (Label)
+    DD->addArangeLabel(SymbolCU(this, Label));
+
+  if (Label) {
+    DIEValue *Value = new (DIEValueAllocator) DIELabel(Label);
+    Die->addValue(Attribute, dwarf::DW_FORM_addr, Value);
   } else {
-    unsigned idx = DU->getAddrPoolIndex(Label);
-    DIEValue *Value = new (DIEValueAllocator) DIEInteger(idx);
-    Die->addValue(Attribute, dwarf::DW_FORM_GNU_addr_index, Value);
+    DIEValue *Value = new (DIEValueAllocator) DIEInteger(0);
+    Die->addValue(Attribute, dwarf::DW_FORM_addr, Value);
   }
 }
 
@@ -1427,24 +1436,6 @@ DIE *DwarfUnit::getOrCreateNameSpace(DINameSpace NS) {
   return NDie;
 }
 
-/// Unique C++ member function declarations based on their
-/// context and mangled name.
-DISubprogram
-DwarfUnit::getOdrUniqueSubprogram(DIScope Context, DISubprogram SP) const {
-  if (!hasODR() ||
-      !Context.isCompositeType() ||
-      SP.getLinkageName().empty() ||
-      SP.isDefinition())
-    return SP;
-  // Create a key with the UID of the parent class and this SP's name.
-  Twine Key = SP.getContext().getName() + SP.getLinkageName();
-  const MDNode *&Entry = DD->getOrCreateOdrMember(Key.str());
-  if (!Entry)
-    Entry = &*SP;
-
-  return DISubprogram(Entry);
-}
-
 /// getOrCreateSubprogramDIE - Create new DIE using SP.
 DIE *DwarfUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
   // Construct the context before querying for the existence of the DIE in case
@@ -1452,8 +1443,10 @@ DIE *DwarfUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
   // declarations).
   DIScope Context = resolve(SP.getContext());
   DIE *ContextDIE = getOrCreateContextDIE(Context);
+
   // Unique declarations based on the ODR, where applicable.
-  SP = getOdrUniqueSubprogram(Context, SP);
+  SP = DISubprogram(DD->resolve(SP.getRef()));
+  assert(SP.Verify());
 
   DIE *SPDie = getDIE(SP);
   if (SPDie)
@@ -2048,6 +2041,27 @@ void DwarfUnit::emitHeader(const MCSection *ASection,
   Asm->EmitSectionOffset(ASectionSym, ASectionSym);
   Asm->OutStreamer.AddComment("Address Size (in bytes)");
   Asm->EmitInt8(Asm->getDataLayout().getPointerSize());
+}
+
+void DwarfUnit::addRange(RangeSpan Range) {
+  // Only add a range for this unit if we're emitting full debug.
+  if (getCUNode().getEmissionKind() == DIBuilder::FullDebug) {
+    // If we have no current ranges just add the range and return, otherwise,
+    // check the current section and CU against the previous section and CU we
+    // emitted into and the subprogram was contained within. If these are the
+    // same then extend our current range, otherwise add this as a new range.
+    if (CURanges.size() == 0 ||
+        this != DD->getPrevCU() ||
+        Asm->getCurrentSection() != DD->getPrevSection()) {
+      CURanges.push_back(Range);
+      return;
+    }
+
+    assert(&(CURanges.back().getEnd()->getSection()) ==
+               &(Range.getEnd()->getSection()) &&
+           "We can only append to a range in the same section!");
+    CURanges.back().setEnd(Range.getEnd());
+  }
 }
 
 void DwarfCompileUnit::initStmtList(MCSymbol *DwarfLineSectionSym) {

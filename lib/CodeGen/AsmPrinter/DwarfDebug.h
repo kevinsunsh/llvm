@@ -17,11 +17,10 @@
 #include "AsmPrinterHandler.h"
 #include "DIE.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/FoldingSet.h"
 #include "llvm/CodeGen/LexicalScopes.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugLoc.h"
@@ -33,21 +32,13 @@ namespace llvm {
 
 class AsmPrinter;
 class ByteStreamer;
-class DwarfDebug;
-class DwarfUnit;
-class DwarfCompileUnit;
 class ConstantInt;
 class ConstantFP;
-class DbgVariable;
-class MachineFrameInfo;
+class DwarfCompileUnit;
+class DwarfDebug;
+class DwarfTypeUnit;
+class DwarfUnit;
 class MachineModuleInfo;
-class MachineOperand;
-class MCAsmInfo;
-class MCObjectFileInfo;
-class DIEAbbrev;
-class DIE;
-class DIELoc;
-class DIEEntry;
 
 //===----------------------------------------------------------------------===//
 /// \brief This class is used to record source line correspondence.
@@ -90,31 +81,37 @@ class DebugLocEntry {
   // The variable to which this location entry corresponds.
   const MDNode *Variable;
 
+  // The compile unit to which this location entry is referenced by.
+  const DwarfCompileUnit *Unit;
+
   // Whether this location has been merged.
   bool Merged;
 
 public:
-  DebugLocEntry() : Begin(0), End(0), Variable(0), Merged(false) {
+  DebugLocEntry() : Begin(0), End(0), Variable(0), Unit(0), Merged(false) {
     Constants.Int = 0;
   }
   DebugLocEntry(const MCSymbol *B, const MCSymbol *E, MachineLocation &L,
-                const MDNode *V)
-      : Begin(B), End(E), Loc(L), Variable(V), Merged(false) {
+                const MDNode *V, const DwarfCompileUnit *U)
+      : Begin(B), End(E), Loc(L), Variable(V), Unit(U), Merged(false) {
     Constants.Int = 0;
     EntryKind = E_Location;
   }
-  DebugLocEntry(const MCSymbol *B, const MCSymbol *E, int64_t i)
-      : Begin(B), End(E), Variable(0), Merged(false) {
+  DebugLocEntry(const MCSymbol *B, const MCSymbol *E, int64_t i,
+                const DwarfCompileUnit *U)
+      : Begin(B), End(E), Variable(0), Unit(U), Merged(false) {
     Constants.Int = i;
     EntryKind = E_Integer;
   }
-  DebugLocEntry(const MCSymbol *B, const MCSymbol *E, const ConstantFP *FPtr)
-      : Begin(B), End(E), Variable(0), Merged(false) {
+  DebugLocEntry(const MCSymbol *B, const MCSymbol *E, const ConstantFP *FPtr,
+                const DwarfCompileUnit *U)
+      : Begin(B), End(E), Variable(0), Unit(U), Merged(false) {
     Constants.CFP = FPtr;
     EntryKind = E_ConstantFP;
   }
-  DebugLocEntry(const MCSymbol *B, const MCSymbol *E, const ConstantInt *IPtr)
-      : Begin(B), End(E), Variable(0), Merged(false) {
+  DebugLocEntry(const MCSymbol *B, const MCSymbol *E, const ConstantInt *IPtr,
+                const DwarfCompileUnit *U)
+      : Begin(B), End(E), Variable(0), Unit(U), Merged(false) {
     Constants.CIP = IPtr;
     EntryKind = E_ConstantInt;
   }
@@ -139,6 +136,7 @@ public:
   const MDNode *getVariable() const { return Variable; }
   const MCSymbol *getBeginSym() const { return Begin; }
   const MCSymbol *getEndSym() const { return End; }
+  const DwarfCompileUnit *getCU() const { return Unit; }
   MachineLocation getLoc() const { return Loc; }
 };
 
@@ -341,13 +339,10 @@ class DwarfDebug : public AsmPrinterHandler {
   // Maps a CU DIE with its corresponding DwarfCompileUnit.
   DenseMap<const DIE *, DwarfCompileUnit *> CUDieMap;
 
-  /// Maps MDNodes for type sysstem with the corresponding DIEs. These DIEs can
+  /// Maps MDNodes for type system with the corresponding DIEs. These DIEs can
   /// be shared across CUs, that is why we keep the map here instead
   /// of in DwarfCompileUnit.
   DenseMap<const MDNode *, DIE *> MDTypeNodeToDieMap;
-
-  // Used to unique C++ member function declarations.
-  StringMap<const MDNode *> OdrMemberMap;
 
   // List of all labels used in aranges generation.
   std::vector<SymbolCU> ArangeLabels;
@@ -418,6 +413,13 @@ class DwarfDebug : public AsmPrinterHandler {
   // If nonnull, stores the current machine instruction we're processing.
   const MachineInstr *CurMI;
 
+  // If nonnull, stores the section that the previous function was allocated to
+  // emitting.
+  const MCSection *PrevSection;
+
+  // If nonnull, stores the CU in which the previous subprogram was contained.
+  const DwarfCompileUnit *PrevCU;
+
   // Section Symbols: these are assembler temporary labels that are emitted at
   // the beginning of each supported dwarf section.  These are used to form
   // section offsets and are created by EmitSectionLabels.
@@ -479,9 +481,17 @@ class DwarfDebug : public AsmPrinterHandler {
   // Holder for the skeleton information.
   DwarfFile SkeletonHolder;
 
-  // Store file names for type units under fission in a line table header that
-  // will be emitted into debug_line.dwo.
+  /// Store file names for type units under fission in a line table header that
+  /// will be emitted into debug_line.dwo.
+  // FIXME: replace this with a map from comp_dir to table so that we can emit
+  // multiple tables during LTO each of which uses directory 0, referencing the
+  // comp_dir of all the type units that use it.
   MCDwarfDwoLineTable SplitTypeUnitFileTable;
+
+  // True iff there are multiple CUs in this module.
+  bool SingleCU;
+
+  MCDwarfDwoLineTable *getDwoLineTable(const DwarfCompileUnit &);
 
   void addScopeVariable(LexicalScope *LS, DbgVariable *Var);
 
@@ -630,8 +640,7 @@ class DwarfDebug : public AsmPrinterHandler {
 
   /// \brief Create new DwarfCompileUnit for the given metadata node with tag
   /// DW_TAG_compile_unit.
-  DwarfCompileUnit *constructDwarfCompileUnit(DICompileUnit DIUnit,
-                                              bool Singular);
+  DwarfCompileUnit *constructDwarfCompileUnit(DICompileUnit DIUnit);
 
   /// \brief Construct subprogram DIE.
   void constructSubprogramDIE(DwarfCompileUnit *TheCU, const MDNode *N);
@@ -700,11 +709,6 @@ public:
     return MDTypeNodeToDieMap.lookup(TypeMD);
   }
 
-  /// \brief Look up or create an entry in the OdrMemberMap.
-  const MDNode *&getOrCreateOdrMember(StringRef Key) {
-    return OdrMemberMap.GetOrCreateValue(Key).getValue();
-  }
-
   /// \brief Emit all Dwarf sections that should come prior to the
   /// content.
   void beginModule();
@@ -751,14 +755,17 @@ public:
   /// split dwarf proposal support.
   bool useSplitDwarf() const { return HasSplitDwarf; }
 
-  /// \brief Returns whether or not to use AT_ranges for compilation units.
-  bool useCURanges() const { return HasCURanges; }
-
   /// Returns the Dwarf Version.
   unsigned getDwarfVersion() const { return DwarfVersion; }
 
   /// Returns the section symbol for the .debug_loc section.
   MCSymbol *getDebugLocSym() const { return DwarfDebugLocSectionSym; }
+
+  /// Returns the previous section that was emitted into.
+  const MCSection *getPrevSection() const { return PrevSection; }
+
+  /// Returns the previous CU that was being updated
+  const DwarfCompileUnit *getPrevCU() const { return PrevCU; }
 
   /// Returns the entries for the .debug_loc section.
   const SmallVectorImpl<DebugLocEntry> &getDebugLocEntries() const {
@@ -775,7 +782,7 @@ public:
   }
 
   /// \brief Return the TypeIdentifierMap.
-  const DITypeIdentifierMap& getTypeIdentifierMap() const {
+  const DITypeIdentifierMap &getTypeIdentifierMap() const {
     return TypeIdentifierMap;
   }
 
