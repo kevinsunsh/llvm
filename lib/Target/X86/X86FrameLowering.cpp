@@ -656,7 +656,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
         .setMIFlag(MachineInstr::FrameSetup);
       
       if (STI.isOSWindows()) {
-        if (TM.getCodeModel() == CodeModel::Large) {
+        if (MF.getTarget().getCodeModel() == CodeModel::Large) {
           // For large code model we need to do indirect call to __chkstk.
         
             
