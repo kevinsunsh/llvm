@@ -690,6 +690,9 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
         .addReg(X86::EAX, RegState::Kill)
         .setMIFlag(MachineInstr::FrameSetup);
     }
+    
+    
+    MachineInstrBuilder MIB;
 
     if (Is64Bit) {
       // Handle the 64-bit Windows ABI case where we need to call __chkstk.
@@ -697,18 +700,42 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
       BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::RAX)
         .addImm(NumBytes)
         .setMIFlag(MachineInstr::FrameSetup);
+      
+      if (STI.isOSWindows()) {
+        if (MF.getTarget().getCodeModel() == CodeModel::Large) {
+          // For large code model we need to do indirect call to __chkstk.
+        
+            
+          // R11 will be used to contain the address of __chkstk.
+          // R11 is a volotiale register and assumed to be destoyed by the callee, 
+          // so there is no need to save and restore it.
+          BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::R11)
+            .addExternalSymbol(StackProbeSymbol);
+          // Create a call to __chkstk function which address contained in R11.
+          MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::CALL64r))
+                  .addReg(X86::R11, RegState::Kill);
+        } else {
+        
+          // For non-large code model we can do direct call to __chkstk.
+                
+          MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::W64ALLOCA))
+                  .addExternalSymbol(StackProbeSymbol);
+        }
+      }
     } else {
       // Allocate NumBytes-4 bytes on stack in case of isEAXAlive.
       // We'll also use 4 already allocated bytes for EAX.
       BuildMI(MBB, MBBI, DL, TII.get(X86::MOV32ri), X86::EAX)
         .addImm(isEAXAlive ? NumBytes - 4 : NumBytes)
         .setMIFlag(MachineInstr::FrameSetup);
+      
+      if (STI.isOSWindows()) {
+        MIB = BuildMI(MBB, MBBI, DL, TII.get(X86::CALLpcrel32))
+                .addExternalSymbol(StackProbeSymbol);
+      }
     }
 
-    BuildMI(MBB, MBBI, DL,
-            TII.get(Is64Bit ? X86::W64ALLOCA : X86::CALLpcrel32))
-      .addExternalSymbol(StackProbeSymbol)
-      .addReg(StackPtr,    RegState::Define | RegState::Implicit)
+    MIB.addReg(StackPtr,    RegState::Define | RegState::Implicit)
       .addReg(X86::EFLAGS, RegState::Define | RegState::Implicit)
       .setMIFlag(MachineInstr::FrameSetup);
 
