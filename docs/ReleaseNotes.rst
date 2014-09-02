@@ -294,6 +294,32 @@ new LLVM-based code generators "on the fly" for the designed processors and
 loads them in to the compiler backend as runtime libraries to avoid
 per-target recompilation of larger parts of the compiler chain. 
 
+ISPC
+----
+
+`ISPC <http://ispc.github.io/>`_ is a C-based language based on the SPMD
+(single program, multiple data) programming model that generates efficient
+SIMD code for modern processors without the need for complex analysis and
+autovectorization. The language exploits the concept of “varying” data types,
+which ensure vector-friendly data layout, explicit vectorization and compact
+representation of the program. The project uses the LLVM infrastructure for
+optimization and code generation.
+
+Likely
+------
+
+`Likely <http://www.liblikely.org>`_ is an embeddable just-in-time Lisp for
+image recognition and heterogenous architectures. Algorithms are just-in-time
+compiled using LLVM’s MCJIT infrastructure to execute on single or
+multi-threaded CPUs and potentially OpenCL SPIR or CUDA enabled GPUs. Likely
+exploits the observation that while image processing and statistical learning
+kernels must be written generically to handle any matrix datatype, at runtime
+they tend to be executed repeatedly on the same type. Likely also seeks to
+explore new optimizations for statistical learning algorithms by moving them
+from an offline model generation step to a compile-time simplification of a
+function (the learning algorithm) with constant arguments (the training set).
+
+
 Additional Information
 ======================
 
