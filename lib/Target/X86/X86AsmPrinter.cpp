@@ -552,7 +552,7 @@ emitNonLazySymbolPointer(MCStreamer &OutStreamer, MCSymbol *StubLabel,
 }
 
 MCSymbol *X86AsmPrinter::GetCPISymbol(unsigned CPID) const {
-  if (Subtarget->isTargetKnownWindowsMSVC()) {
+  if (Subtarget->isTargetKnownWindowsMSVC() && Subtarget->isTargetCOFF()) {
     const MachineConstantPoolEntry &CPE =
         MF->getConstantPool()->getConstants()[CPID];
     if (!CPE.isMachineConstantPoolEntry()) {
