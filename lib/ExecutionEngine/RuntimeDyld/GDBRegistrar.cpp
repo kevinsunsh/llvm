@@ -149,13 +149,7 @@ void GDBJITRegistrar::registerObject(const ObjectBuffer &Object) {
     JITCodeEntry->symfile_addr = Buffer;
     JITCodeEntry->symfile_size = Size;
 
-    {
-      // [andrew 20130823] GDBJITRegistrar is static so we'll use the global lock here
-      // but this should really be a member of GDBJITRegistrar
-      llvm::MutexGuard locked(JITDebugLock);
-      ObjectBufferMap[Buffer] = std::make_pair(Size, JITCodeEntry);
-    }
-
+    ObjectBufferMap[Buffer] = std::make_pair(Size, JITCodeEntry);
     NotifyDebugger(JITCodeEntry);
   }
 }
