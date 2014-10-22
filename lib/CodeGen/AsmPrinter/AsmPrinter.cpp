@@ -226,6 +226,8 @@ bool AsmPrinter::doInitialization(Module &M) {
       Handlers.push_back(HandlerInfo(new WinCodeViewLineTables(this),
                                      DbgTimerName,
                                      CodeViewLineTablesGroupName));
+      DD = new DwarfDebug(this, &M);
+      Handlers.push_back(HandlerInfo(DD, DbgTimerName, DWARFGroupName));
     } else {
       DD = new DwarfDebug(this, &M);
       Handlers.push_back(HandlerInfo(DD, DbgTimerName, DWARFGroupName));
